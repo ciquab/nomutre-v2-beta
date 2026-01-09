@@ -86,27 +86,24 @@ async function updateLogListView(isAppend = false) {
     StateManager.setLogLoading(true);
 
     try {
-        // ハンドラが設定されていない場合は警告を出して中断（安全策）
-        if (!UI._fetchLogsHandler) {
-            console.warn("UI._fetchLogsHandler is not set. Skipping data load.");
-            // 開発中はエラーに気づけるようコンソールに出す
-            return;
-        }
-
         const currentLimit = StateManager.logLimit;
         // 追加読み込みなら、前の末尾(currentLimit - 50)から取得
         const offset = isAppend ? currentLimit - 50 : 0; 
-        const limit = 50;
         
-        // ★修正ポイント: 
-        // db.logs (Dexie) への直接依存を排除し、注入されたハンドラ経由でデータを取得
-        // main.js側で { logs, totalCount } を返す関数をセットする前提となります
-        const { logs, totalCount } = await UI._fetchLogsHandler(offset, limit);
+        const totalCount = await db.logs.count();
+        
+        // Offset-Limit法で取得
+        const newLogs = await db.logs
+            .orderBy('timestamp')
+            .reverse()
+            .offset(offset)
+            .limit(50)
+            .toArray();
 
-        // 描画実行 (既存の renderLogList を使用)
-        renderLogList(logs, isAppend);
+        // 描画実行
+        renderLogList(newLogs, isAppend);
 
-        // センチネル（監視要素）の管理 (既存の manageInfiniteScrollSentinel を使用)
+        // センチネル（監視要素）の管理
         manageInfiniteScrollSentinel(totalCount > currentLimit);
 
     } catch (e) {
@@ -154,8 +151,6 @@ function manageInfiniteScrollSentinel(hasMore) {
 
 // ログリスト描画 (カロリー基準対応 & 追記モード対応)
 function renderLogList(logs, isAppend) {
-    // ★修正ポイント: DOM.elements (キャッシュ) を使用
-    // ※ initDOM で 'log-list' をキャッシュ済みであることが前提
     const list = DOM.elements['log-list'] || document.getElementById('log-list');
     if (!list) return;
 
@@ -182,19 +177,21 @@ function renderLogList(logs, isAppend) {
     const baseEx = Store.getBaseExercise();
     const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
     
-    // ヘッダーラベルの更新 (ここもキャッシュを使っても良いが、頻度が低いのでそのままDOM取得でも可。一応修正)
-    const labelEl = DOM.elements['history-base-label'] || document.getElementById('history-base-label');
+    // ヘッダーラベルの更新
+    const labelEl = document.getElementById('history-base-label');
     if(labelEl) labelEl.textContent = `(${baseExData.icon} ${baseExData.label} 換算)`;
 
-    // ループ外でプロフィールを取得して使い回す
+    // ★追加: ループ外でプロフィールを取得して使い回す
     const userProfile = Store.getProfile();
 
     const htmlItems = logs.map(log => {
         // kcalがある場合は優先使用、なければminutes(互換)から計算
+        // ★修正: profileを渡す
         const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, userProfile));
         const isDebt = kcal < 0;
         
-        // 表示用の時間を計算
+        // 表示用の時間を計算 (設定されている運動基準で)
+        // ★修正: profileを渡す
         const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, userProfile);
 
         const typeText = isDebt ? '借金' : '返済';
@@ -262,6 +259,7 @@ function renderLogList(logs, isAppend) {
 
 function renderBeerTank(currentBalanceKcal) {
     // 【修正】kcalベースの描画ロジック
+    // ★追加: profileとsettingsを取得
     const profile = Store.getProfile();
     const settings = {
         modes: Store.getModes(),
@@ -273,21 +271,18 @@ function renderBeerTank(currentBalanceKcal) {
         displayMinutes, 
         baseExData, 
         unitKcal, 
-        // displayRate, // 使っていない変数は削除
+        displayRate, 
         targetStyle,
         liquidColor,
         isHazy 
+    // ★修正: settingsとprofileを渡す
     } = Calc.getTankDisplayData(currentBalanceKcal, StateManager.beerMode, settings, profile);
 
-    // ★修正ポイント: DOM.elements (キャッシュ) を使用
-    // initDOM で初期化されている前提
-    const liquid = DOM.elements['tank-liquid'];
-    const emptyIcon = DOM.elements['tank-empty-icon'];
-    const cansText = DOM.elements['tank-cans'];
-    const minText = DOM.elements['tank-minutes'];
-    const msgContainer = DOM.elements['tank-message'];
-    // メッセージ内のpタグは静的なので、ここだけquerySelectorしてもコストは低いが、
-    // 厳密にやるならinitDOMでキャッシュすべき。今回は既存構造維持でコンテナから取得。
+    const liquid = document.getElementById('tank-liquid');
+    const emptyIcon = document.getElementById('tank-empty-icon');
+    const cansText = document.getElementById('tank-cans');
+    const minText = document.getElementById('tank-minutes');
+    const msgContainer = document.getElementById('tank-message');
     const msgText = msgContainer ? msgContainer.querySelector('p') : null;
 
     if (!liquid || !emptyIcon || !cansText || !minText || !msgText) return;
@@ -305,7 +300,6 @@ function renderBeerTank(currentBalanceKcal) {
             emptyIcon.style.opacity = '0';
             // タンクの最大容量(3本分)に対する割合
             let h = (canCount / APP.TANK_MAX_CANS) * 100;
-            // 視認性確保のため、極小でも少しだけ表示する (5%〜100%)
             liquid.style.height = `${Math.max(5, Math.min(100, h))}%`;
             cansText.textContent = canCount.toFixed(1);
             
@@ -341,6 +335,7 @@ function renderBeerTank(currentBalanceKcal) {
 
             if (debtCansVal > 1.5) {
                 // 1缶分を消費するのに必要な時間
+                // ★修正: profileを渡す (convertKcalToMinutesはprofile必須)
                 const oneCanMin = Calc.convertKcalToMinutes(unitKcal, Store.getBaseExercise(), profile);
                 msgText.textContent = `借金山積み...😱 まずは1杯分 (${oneCanMin}分) だけ返そう！`;
                 msgText.className = 'text-sm font-bold text-orange-500 dark:text-orange-400 animate-pulse';
@@ -491,35 +486,41 @@ function renderWeeklyAndHeatUp(logs, checks) {
     
     const fragment = document.createDocumentFragment();
     const today = dayjs();
-    let dryCountInWeek = 0; 
+    let dryCountInWeek = 0; // 週間の「休肝日」カウント
 
     for (let i = 6; i >= 0; i--) {
         const d = today.subtract(i, 'day');
         // logic.js で判定されたステータスを取得
+        // ★修正: profileを渡す
         const status = Calc.getDayStatus(d, logs, checks, profile);
         const isToday = i === 0;
 
-        // ★変更: cursor-pointer, active:scale-95, hover効果を追加してクリック可能に見せる
-        let elClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] shadow-sm transition-all cursor-pointer hover:opacity-80 active:scale-95 ";
+        let elClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] shadow-sm transition-all ";
         let content = "";
 
         if (isToday) {
+            // 今日
             elClass += "border-2 border-indigo-500 bg-white dark:bg-gray-700 text-indigo-500 dark:text-indigo-300 font-bold relative transform scale-110";
             content = "今";
         } 
+        // ▼▼▼ 修正: 休肝日 (緑) ▼▼▼
         else if (status === 'rest' || status === 'rest_exercise') {
             elClass += "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-300 border border-green-200 dark:border-green-800";
             content = "🍵";
             dryCountInWeek++;
         } 
+        // ▼▼▼ 追加: 完済 (青) - 飲んだけど運動で返済した日 ▼▼▼
         else if (status === 'drink_exercise_success') {
             elClass += "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800";
-            content = "🏃";
+            content = "🏃"; // 完済アイコン
+            // ※もし完済も「成功日数」に含めたい場合はここで dryCountInWeek++; してください
         }
+        // ▼▼▼ 修正: 飲酒 (赤) ▼▼▼
         else if (status === 'drink' || status === 'drink_exercise') {
             elClass += "bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-300 border border-red-200 dark:border-red-800";
             content = "🍺";
         } 
+        // その他 (記録なし等)
         else {
             elClass += "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-500 border border-gray-200 dark:border-gray-600";
             content = "-";
@@ -530,15 +531,13 @@ function renderWeeklyAndHeatUp(logs, checks) {
         div.textContent = content;
         div.title = d.format('MM/DD'); 
         
-        // ★追加: 日付データを属性に持たせる（クリック時に取得するため）
-        div.dataset.date = d.format('YYYY-MM-DD');
-        
         fragment.appendChild(div);
     }
 
     container.innerHTML = '';
     container.appendChild(fragment);
 
+    // 週間評価メッセージの更新
     const msgEl = DOM.elements['weekly-status-text'] || document.getElementById('weekly-status-text');
     if (msgEl) {
         if (dryCountInWeek >= 4) msgEl.textContent = "Excellent! 🌟";
@@ -705,14 +704,12 @@ function renderChart(logs, checks) {
 }
 
 export const UI = {
-    // データ取得用ハンドラ (main.jsから注入)
-    // 期待する戻り値: Promise<{ logs: Array, totalCount: Number }>
-    _fetchLogsHandler: null,
+    // ... initDOM は Part 1 で定義済みですが、UIオブジェクトのメソッドとして追加していきます
+    // ここでは個別のモーダル制御関数などをエクスポートします
 
-    // ハンドラ設定メソッド
-    setFetchLogsHandler: (fn) => {
-        UI._fetchLogsHandler = fn;
-    },
+    // 注意: initDOM自体は Part 1 の冒頭で DOM オブジェクトへの参照として準備されていますが、
+    // ここで UI オブジェクトに紐づける形でメソッドを定義します。
+    // Part 1 の DOM 変数と連携します。
 
     getTodayString: () => dayjs().format('YYYY-MM-DD'),
 
@@ -732,102 +729,151 @@ export const UI = {
         if (section) section.classList.toggle('hidden-area', cb.checked);
     },
 
-    openBeerModal: (log = null, targetDate = null, isCopy = false) => {
-    const dateEl = document.getElementById('beer-date');
-    const styleSelect = document.getElementById('beer-select');
-    const sizeSelect = document.getElementById('beer-size');
-    const countInput = document.getElementById('beer-count');
-    const abvInput = document.getElementById('preset-abv');
-    const breweryInput = document.getElementById('beer-brewery');
-    const brandInput = document.getElementById('beer-brand');
-    const ratingInput = document.getElementById('beer-rating');
-    const memoInput = document.getElementById('beer-memo');
-    const submitBtn = document.getElementById('beer-submit-btn') || document.querySelector('#beer-form button[type="submit"]');
-    
-    if (submitBtn) submitBtn.id = 'beer-submit-btn';
+    openBeerModal: (log = null) => {
+        const dateEl = document.getElementById('beer-date');
+        const styleSelect = document.getElementById('beer-select');
+        const sizeSelect = document.getElementById('beer-size');
+        const countInput = document.getElementById('beer-count');
+        const abvInput = document.getElementById('preset-abv');
+        const breweryInput = document.getElementById('beer-brewery');
+        const brandInput = document.getElementById('beer-brand');
+        const ratingInput = document.getElementById('beer-rating');
+        const memoInput = document.getElementById('beer-memo');
+        const submitBtn = document.getElementById('beer-submit-btn') || document.querySelector('#beer-form button[type="submit"]');
+        
+        if (submitBtn) submitBtn.id = 'beer-submit-btn';
 
-    // モード判定: ログがあり、かつコピーモードでない場合は「更新(編集)」
-    const isUpdateMode = log && !isCopy;
-
-    // --- 日付設定 ---
-    if (dateEl) {
-        if (targetDate) {
-            // 指定された日付（カレンダータップ時など）
-            dateEl.value = targetDate;
-        } else if (isUpdateMode) {
-            // 既存ログの日付
-            dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
-        } else {
-            // 新規・コピー時は今日
-            dateEl.value = UI.getTodayString();
-        }
-    }
-
-    // --- フォーム初期化 (デフォルト値) ---
-    if (styleSelect) {
-        const modes = Store.getModes();
-        const currentMode = StateManager.beerMode; 
-        const defaultStyle = currentMode === 'mode1' ? modes.mode1 : modes.mode2;
-        styleSelect.value = defaultStyle || ''; 
-    }
-    if (sizeSelect) sizeSelect.value = '350';
-    if (countInput) countInput.value = '1';
-    if (abvInput) abvInput.value = '5.0';
-    if (breweryInput) breweryInput.value = '';
-    if (brandInput) brandInput.value = '';
-    if (ratingInput) ratingInput.value = '0';
-    if (memoInput) memoInput.value = '';
-    
-    const customAbv = document.getElementById('custom-abv');
-    const customAmount = document.getElementById('custom-amount');
-    if (customAbv) customAbv.value = '';
-    if (customAmount) customAmount.value = '';
-
-    // --- ボタンの表示切り替え ---
-    if (submitBtn) {
-        if (isUpdateMode) {
-            submitBtn.textContent = '更新する';
-            submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
-            submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
-        } else {
-            // 新規 または コピー
-            submitBtn.textContent = '記録する';
-            submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-            submitBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
-        }
-    }
-
-    // --- データの充填 (編集 または コピー) ---
-    if (log) {
-        if (breweryInput) breweryInput.value = log.brewery || '';
-        if (brandInput) brandInput.value = log.brand || '';
-        if (ratingInput) ratingInput.value = log.rating || 0;
-        if (memoInput) memoInput.value = log.memo || '';
-
-        const isCustom = log.style === 'Custom' || log.isCustom; 
-
-        if (isCustom) {
-            UI.switchBeerInputTab('custom');
-            if (customAbv) customAbv.value = log.abv || '';
-            if (customAmount) customAmount.value = log.rawAmount || (parseInt(log.size) || '');
+        if (dateEl) dateEl.value = UI.getTodayString();
+        if (styleSelect) {
+            const modes = Store.getModes();
+            // ホーム画面がMode1ならMode1のビール、Mode2ならMode2のビールをセット
+            const currentMode = StateManager.beerMode; 
+            const defaultStyle = currentMode === 'mode1' ? modes.mode1 : modes.mode2;
             
-            const radios = document.getElementsByName('customType');
-            if (log.customType) {
-                radios.forEach(r => r.checked = (r.value === log.customType));
+            styleSelect.value = defaultStyle || ''; 
+        }
+        if (sizeSelect) sizeSelect.value = '350';
+        if (countInput) countInput.value = '1';
+        if (abvInput) abvInput.value = '5.0';
+        if (breweryInput) breweryInput.value = '';
+        if (brandInput) brandInput.value = '';
+        if (ratingInput) ratingInput.value = '0';
+        if (memoInput) memoInput.value = '';
+        
+        const customAbv = document.getElementById('custom-abv');
+        const customAmount = document.getElementById('custom-amount');
+        if (customAbv) customAbv.value = '';
+        if (customAmount) customAmount.value = '';
+
+        if (log) {
+            if (submitBtn) {
+                submitBtn.textContent = '更新する';
+                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+            }
+            
+            if (dateEl) dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
+            if (breweryInput) breweryInput.value = log.brewery || '';
+            if (brandInput) brandInput.value = log.brand || '';
+            if (ratingInput) ratingInput.value = log.rating || 0;
+            if (memoInput) memoInput.value = log.memo || '';
+
+            const isCustom = log.style === 'Custom' || log.isCustom; 
+
+            if (isCustom) {
+                UI.switchBeerInputTab('custom');
+                if (customAbv) customAbv.value = log.abv || '';
+                if (customAmount) customAmount.value = log.rawAmount || (parseInt(log.size) || '');
+                
+                const radios = document.getElementsByName('customType');
+                if (log.customType) {
+                    radios.forEach(r => r.checked = (r.value === log.customType));
+                }
+            } else {
+                UI.switchBeerInputTab('preset');
+                if (styleSelect) styleSelect.value = log.style || '';
+                if (sizeSelect) sizeSelect.value = log.size || '350';
+                if (countInput) countInput.value = log.count || 1;
+                if (abvInput) abvInput.value = log.abv || 5.0;
+            }
+
+        } else {
+            if (submitBtn) {
+                submitBtn.textContent = '記録する';
+                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+            }
+            UI.switchBeerInputTab('preset');
+        }
+
+        toggleModal('beer-modal', true);
+    },
+
+    switchBeerInputTab: (mode) => {
+        const presetTab = document.getElementById('tab-beer-preset');
+        const customTab = document.getElementById('tab-beer-custom');
+        const presetContent = document.getElementById('beer-input-preset');
+        const customContent = document.getElementById('beer-input-custom');
+
+        if (!presetTab || !customTab) return;
+
+        const activeClass = "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm";
+        const inactiveClass = "text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-600";
+
+        if (mode === 'preset') {
+            presetTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${activeClass}`;
+            customTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${inactiveClass}`;
+            presetContent?.classList.remove('hidden');
+            customContent?.classList.add('hidden');
+        } else {
+            customTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${activeClass}`;
+            presetTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${inactiveClass}`;
+            customContent?.classList.remove('hidden');
+            presetContent?.classList.add('hidden');
+        }
+    },
+
+    openCheckModal: (check = null, dateStr = null) => { 
+        const dateEl = document.getElementById('check-date');
+        const isDryCb = document.getElementById('is-dry-day');
+        const form = document.getElementById('check-form');
+        const submitBtn = document.getElementById('check-submit-btn') || document.querySelector('#check-form button[type="submit"]');
+        if (submitBtn) submitBtn.id = 'check-submit-btn';
+        
+        const weightInput = document.getElementById('check-weight');
+
+        form.reset();
+        UI.toggleDryDay(isDryCb);
+
+        if (check) {
+            if (dateEl) dateEl.value = dayjs(check.timestamp).format('YYYY-MM-DD');
+            if (isDryCb) {
+                isDryCb.checked = check.isDryDay;
+                UI.toggleDryDay(isDryCb);
+            }
+            if (form.elements['waistEase']) form.elements['waistEase'].checked = check.waistEase;
+            if (form.elements['footLightness']) form.elements['footLightness'].checked = check.footLightness;
+            if (form.elements['waterOk']) form.elements['waterOk'].checked = check.waterOk;
+            if (form.elements['fiberOk']) form.elements['fiberOk'].checked = check.fiberOk;
+            if (weightInput) weightInput.value = check.weight || '';
+
+            if (submitBtn) {
+                submitBtn.textContent = '更新する';
+                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
             }
         } else {
-            UI.switchBeerInputTab('preset');
-            if (styleSelect) styleSelect.value = log.style || '';
-            if (sizeSelect) sizeSelect.value = log.size || '350';
-            if (countInput) countInput.value = log.count || 1;
-            if (abvInput) abvInput.value = log.abv || 5.0;
+            if (dateEl) dateEl.value = dateStr || UI.getTodayString();
+            
+            if (submitBtn) {
+                submitBtn.textContent = '完了';
+                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+            }
         }
-    } else {
-        UI.switchBeerInputTab('preset');
-    }
 
-    toggleModal('beer-modal', true);
-},
+        toggleModal('check-modal', true); 
+    },
 
     openManualInput: (log = null) => { 
         const select = document.getElementById('exercise-select');
@@ -982,85 +1028,70 @@ export const UI = {
     },
 
     openLogDetail: (log) => {
-    if (!DOM.elements['log-detail-modal']) return;
+        if (!DOM.elements['log-detail-modal']) return;
 
-    // kcal基準で判定
-    const isDebt = (log.kcal !== undefined ? log.kcal : log.minutes) < 0;
-    
-    // アイコン決定
-    let iconChar = isDebt ? '🍺' : '🏃‍♀️';
-    if (isDebt && log.style && STYLE_METADATA[log.style]) {
-        iconChar = STYLE_METADATA[log.style].icon;
-    } else if (!isDebt) {
-        const exKey = log.exerciseKey;
-        if (exKey && EXERCISE[exKey]) iconChar = EXERCISE[exKey].icon;
-        else if (log.name) {
-            const exEntry = Object.values(EXERCISE).find(e => log.name.includes(e.label));
-            if(exEntry) iconChar = exEntry.icon;
-        }
-    }
-    
-    DOM.elements['detail-icon'].textContent = iconChar;
-    DOM.elements['detail-title'].textContent = log.name;
-    DOM.elements['detail-date'].textContent = dayjs(log.timestamp).format('YYYY/MM/DD HH:mm');
-    
-    const typeText = isDebt ? '借金' : '返済';
-    const signClass = isDebt ? 'text-red-500' : 'text-green-500';
-    
-    const baseEx = Store.getBaseExercise();
-    const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
-    
-    const profile = Store.getProfile();
-    const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, profile));
-    const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, profile);
-
-    DOM.elements['detail-minutes'].innerHTML = `<span class="${signClass}">${typeText} ${displayMinutes}分</span> <span class="text-xs text-gray-400 font-normal">(${baseExData.label})</span>`;
-
-    if (isDebt && (log.style || log.size || log.brewery || log.brand)) {
-        DOM.elements['detail-beer-info'].classList.remove('hidden');
-        DOM.elements['detail-style'].textContent = log.style || '-';
-        const sizeLabel = SIZE_DATA[log.size] ? SIZE_DATA[log.size].label : log.size;
-        DOM.elements['detail-size'].textContent = sizeLabel || '-';
+        // kcal基準で判定
+        const isDebt = (log.kcal !== undefined ? log.kcal : log.minutes) < 0;
         
-        const brewery = log.brewery ? `[${log.brewery}] ` : '';
-        const brand = log.brand || '';
-        DOM.elements['detail-brand'].textContent = (brewery + brand) || '-';
-    } else {
-        DOM.elements['detail-beer-info'].classList.add('hidden');
-    }
-
-    if (log.memo || log.rating > 0) {
-        DOM.elements['detail-memo-container'].classList.remove('hidden');
-        const stars = '★'.repeat(log.rating) + '☆'.repeat(5 - log.rating);
-        DOM.elements['detail-rating'].textContent = log.rating > 0 ? stars : '';
-        DOM.elements['detail-memo'].textContent = log.memo || '';
-    } else {
-        DOM.elements['detail-memo-container'].classList.add('hidden');
-    }
-
-    // ★追加: コピーボタンのイベント設定
-    const copyBtn = DOM.elements['btn-detail-copy'] || document.getElementById('btn-detail-copy');
-    if (copyBtn) {
-        if (isDebt) {
-            copyBtn.classList.remove('hidden');
-            copyBtn.onclick = () => {
-                // 詳細モーダルを閉じる
-                toggleModal('log-detail-modal', false);
-                
-                // コピーモードで入力画面を開く
-                // 第3引数 true = コピーモード (内容はlogから、日付は今日、IDは新規)
-                UI.openBeerModal(log, null, true);
-            };
-        } else {
-            // 運動ログのコピーは今回は対象外とする（必要なら実装可）
-            copyBtn.classList.add('hidden');
+        // アイコン決定
+        let iconChar = isDebt ? '🍺' : '🏃‍♀️';
+        if (isDebt && log.style && STYLE_METADATA[log.style]) {
+            iconChar = STYLE_METADATA[log.style].icon;
+        } else if (!isDebt) {
+            const exKey = log.exerciseKey;
+            if (exKey && EXERCISE[exKey]) iconChar = EXERCISE[exKey].icon;
+            else if (log.name) {
+                const exEntry = Object.values(EXERCISE).find(e => log.name.includes(e.label));
+                if(exEntry) iconChar = exEntry.icon;
+            }
         }
-    }
+        
+        DOM.elements['detail-icon'].textContent = iconChar;
+        DOM.elements['detail-title'].textContent = log.name;
+        DOM.elements['detail-date'].textContent = dayjs(log.timestamp).format('YYYY/MM/DD HH:mm');
+        
+        const typeText = isDebt ? '借金' : '返済';
+        const signClass = isDebt ? 'text-red-500' : 'text-green-500';
+        
+        // 表示用に換算
+        const baseEx = Store.getBaseExercise();
+        const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
+        
+        // ★追加: profile取得
+        const profile = Store.getProfile();
 
-    DOM.elements['log-detail-modal'].dataset.id = log.id;
+        // ★修正: profileを渡す
+        const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, profile));
+        const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, profile);
 
-    toggleModal('log-detail-modal', true);
-},
+        DOM.elements['detail-minutes'].innerHTML = `<span class="${signClass}">${typeText} ${displayMinutes}分</span> <span class="text-xs text-gray-400 font-normal">(${baseExData.label})</span>`;
+
+        if (isDebt && (log.style || log.size || log.brewery || log.brand)) {
+            DOM.elements['detail-beer-info'].classList.remove('hidden');
+            DOM.elements['detail-style'].textContent = log.style || '-';
+            const sizeLabel = SIZE_DATA[log.size] ? SIZE_DATA[log.size].label : log.size;
+            DOM.elements['detail-size'].textContent = sizeLabel || '-';
+            
+            const brewery = log.brewery ? `[${log.brewery}] ` : '';
+            const brand = log.brand || '';
+            DOM.elements['detail-brand'].textContent = (brewery + brand) || '-';
+        } else {
+            DOM.elements['detail-beer-info'].classList.add('hidden');
+        }
+
+        if (log.memo || log.rating > 0) {
+            DOM.elements['detail-memo-container'].classList.remove('hidden');
+            const stars = '★'.repeat(log.rating) + '☆'.repeat(5 - log.rating);
+            DOM.elements['detail-rating'].textContent = log.rating > 0 ? stars : '';
+            DOM.elements['detail-memo'].textContent = log.memo || '';
+        } else {
+            DOM.elements['detail-memo-container'].classList.add('hidden');
+        }
+
+        DOM.elements['log-detail-modal'].dataset.id = log.id;
+
+        toggleModal('log-detail-modal', true);
+    },
 
     toggleEditMode: () => {
         const isEdit = StateManager.toggleEditMode();
@@ -1136,70 +1167,59 @@ export const UI = {
     },
 
     initDOM: () => {
-    if (DOM.isInitialized) return;
-    
-    const ids = [
-        'message-box', 'drinking-section', 
-        'beer-date', 'beer-select', 'beer-size', 'beer-count',
-        'beer-input-preset', 'beer-input-custom',
-        'custom-abv', 'custom-amount', 
-        'tab-beer-preset', 'tab-beer-custom',
-        'check-date', 'check-weight', 
-        'manual-exercise-name', 'manual-date', 
-        'weight-input', 'height-input', 'age-input', 'gender-input',
-        'setting-mode-1', 'setting-mode-2', 'setting-base-exercise', 'theme-input','setting-default-record-exercise',
-        'home-mode-select', 
-        'tank-liquid', 'tank-empty-icon', 'tank-cans', 'tank-minutes', 'tank-message',
-        'log-list', 'history-base-label',
-        'liver-rank-card', 'rank-title', 'dry-count', 'rank-progress', 'rank-next-msg',
-        'check-status', 'streak-count', 'streak-badge', 'weekly-stamps', 'weekly-status-text',
-        'chart-filters', 'quick-input-area', 'beer-select-mode-label',
-        'tab-history', 
-        'heatmap-grid',
-        'log-detail-modal', 'detail-icon', 'detail-title', 'detail-date', 'detail-minutes', 
-        'detail-beer-info', 'detail-style', 'detail-size', 'detail-brand', 
-        'detail-memo-container', 'detail-rating', 'detail-memo',
-        'btn-detail-edit', 'btn-detail-delete', 'btn-detail-copy', // ★追加: コピーボタン
-        'beer-submit-btn', 'check-submit-btn',
-        'btn-toggle-edit-mode', 'bulk-action-bar', 'btn-bulk-delete', 'bulk-selected-count',
-        'btn-select-all', 'log-container',
-        'heatmap-prev', 'heatmap-next', 'heatmap-period-label', 'btn-reset-all'
-    ];
+        if (DOM.isInitialized) return;
+        
+        const ids = [
+            'message-box', 'drinking-section', 
+            'beer-date', 'beer-select', 'beer-size', 'beer-count',
+            'beer-input-preset', 'beer-input-custom',
+            'custom-abv', 'custom-amount', 
+            'tab-beer-preset', 'tab-beer-custom',
+            'check-date', 'check-weight', 
+            'manual-exercise-name', 'manual-date', 
+            'weight-input', 'height-input', 'age-input', 'gender-input',
+            'setting-mode-1', 'setting-mode-2', 'setting-base-exercise', 'theme-input','setting-default-record-exercise',
+            'home-mode-select', 
+            'tank-liquid', 'tank-empty-icon', 'tank-cans', 'tank-minutes', 'tank-message',
+            'log-list', 'history-base-label',
+            'liver-rank-card', 'rank-title', 'dry-count', 'rank-progress', 'rank-next-msg',
+            'check-status', 'streak-count', 'streak-badge', 'weekly-stamps', 'weekly-status-text',
+            'chart-filters', 'quick-input-area', 'beer-select-mode-label',
+            'tab-history', 
+            'heatmap-grid',
+            'log-detail-modal', 'detail-icon', 'detail-title', 'detail-date', 'detail-minutes', 
+            'detail-beer-info', 'detail-style', 'detail-size', 'detail-brand', 
+            'detail-memo-container', 'detail-rating', 'detail-memo',
+            'btn-detail-edit', 'btn-detail-delete',
+            'beer-submit-btn', 'check-submit-btn',
+            'btn-toggle-edit-mode', 'bulk-action-bar', 'btn-bulk-delete', 'bulk-selected-count',
+            'btn-select-all', 'log-container',
+            'heatmap-prev', 'heatmap-next', 'heatmap-period-label', 'btn-reset-all'
+        ];
 
-    ids.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) DOM.elements[id] = el;
-    });
-    
-    UI.injectPresetAbvInput();
-    UI.injectHeatmapContainer();
-    
-    // イベントデリゲーションの設定
-    const logListEl = document.getElementById('log-list');
-    if (logListEl) {
-        logListEl.addEventListener('click', (e) => {
-            const triggerBtn = e.target.closest('[data-action="trigger-beer-modal"]');
-            if (triggerBtn) {
-                UI.openBeerModal(null);
-            }
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) DOM.elements[id] = el;
         });
-    }
+        
+        UI.injectPresetAbvInput();
+        UI.injectHeatmapContainer();
+        
+        // 【追加】イベントデリゲーションの設定
+        // log-list内でのアクションをバブリングで検知
+        const logListEl = document.getElementById('log-list');
+        if (logListEl) {
+            logListEl.addEventListener('click', (e) => {
+                // data-action属性を持つ要素を探索
+                const triggerBtn = e.target.closest('[data-action="trigger-beer-modal"]');
+                if (triggerBtn) {
+                    UI.openBeerModal(null);
+                }
+            });
+        }
 
-    // ★追加: カレンダー日付タップのイベント
-    const weeklyStampsEl = DOM.elements['weekly-stamps'] || document.getElementById('weekly-stamps');
-    if (weeklyStampsEl) {
-        weeklyStampsEl.addEventListener('click', (e) => {
-            // data-date属性を持つ要素、またはその親要素をクリックした場合
-            const cell = e.target.closest('[data-date]');
-            if (cell) {
-                // その日付で入力モーダルを開く (新規作成モード)
-                UI.openBeerModal(null, cell.dataset.date);
-            }
-        });
-    }
-
-    DOM.isInitialized = true;
-},
+        DOM.isInitialized = true;
+    },
 
     injectPresetAbvInput: () => {
         const sizeSelect = DOM.elements['beer-size'] || document.getElementById('beer-size');
