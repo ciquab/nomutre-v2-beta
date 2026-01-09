@@ -732,7 +732,7 @@ export const UI = {
         if (section) section.classList.toggle('hidden-area', cb.checked);
     },
 
-    penBeerModal: (log = null, targetDate = null, isCopy = false) => {
+    openBeerModal: (log = null, targetDate = null, isCopy = false) => {
     const dateEl = document.getElementById('beer-date');
     const styleSelect = document.getElementById('beer-select');
     const sizeSelect = document.getElementById('beer-size');
@@ -828,72 +828,6 @@ export const UI = {
 
     toggleModal('beer-modal', true);
 },
-
-    switchBeerInputTab: (mode) => {
-        const presetTab = document.getElementById('tab-beer-preset');
-        const customTab = document.getElementById('tab-beer-custom');
-        const presetContent = document.getElementById('beer-input-preset');
-        const customContent = document.getElementById('beer-input-custom');
-
-        if (!presetTab || !customTab) return;
-
-        const activeClass = "bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm";
-        const inactiveClass = "text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-600";
-
-        if (mode === 'preset') {
-            presetTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${activeClass}`;
-            customTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${inactiveClass}`;
-            presetContent?.classList.remove('hidden');
-            customContent?.classList.add('hidden');
-        } else {
-            customTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${activeClass}`;
-            presetTab.className = `flex-1 py-2 text-xs font-bold rounded-lg transition ${inactiveClass}`;
-            customContent?.classList.remove('hidden');
-            presetContent?.classList.add('hidden');
-        }
-    },
-
-    openCheckModal: (check = null, dateStr = null) => { 
-        const dateEl = document.getElementById('check-date');
-        const isDryCb = document.getElementById('is-dry-day');
-        const form = document.getElementById('check-form');
-        const submitBtn = document.getElementById('check-submit-btn') || document.querySelector('#check-form button[type="submit"]');
-        if (submitBtn) submitBtn.id = 'check-submit-btn';
-        
-        const weightInput = document.getElementById('check-weight');
-
-        form.reset();
-        UI.toggleDryDay(isDryCb);
-
-        if (check) {
-            if (dateEl) dateEl.value = dayjs(check.timestamp).format('YYYY-MM-DD');
-            if (isDryCb) {
-                isDryCb.checked = check.isDryDay;
-                UI.toggleDryDay(isDryCb);
-            }
-            if (form.elements['waistEase']) form.elements['waistEase'].checked = check.waistEase;
-            if (form.elements['footLightness']) form.elements['footLightness'].checked = check.footLightness;
-            if (form.elements['waterOk']) form.elements['waterOk'].checked = check.waterOk;
-            if (form.elements['fiberOk']) form.elements['fiberOk'].checked = check.fiberOk;
-            if (weightInput) weightInput.value = check.weight || '';
-
-            if (submitBtn) {
-                submitBtn.textContent = '更新する';
-                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
-                submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
-            }
-        } else {
-            if (dateEl) dateEl.value = dateStr || UI.getTodayString();
-            
-            if (submitBtn) {
-                submitBtn.textContent = '完了';
-                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-                submitBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
-            }
-        }
-
-        toggleModal('check-modal', true); 
-    },
 
     openManualInput: (log = null) => { 
         const select = document.getElementById('exercise-select');
