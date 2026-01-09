@@ -1070,14 +1070,10 @@ function bindEvents() {
     
     document.getElementById('beer-form')?.addEventListener('submit', handleBeerSubmit);
     
-    // ★追加: 「保存して次へ」ボタンのイベントリスナー
-    // UI側で動的に追加されるため、documentレベルでデリゲートするか、UI.openBeerModal内でbindする手もあるが、
-    // ここでは静的にHTMLに存在しないため、イベントデリゲーションを使用する
-    document.addEventListener('click', (e) => {
-        if (e.target && e.target.id === 'btn-save-next') {
-            e.preventDefault();
-            handleSaveAndNext();
-        }
+    // 【修正】静的ボタンになったため、直接イベントを設定
+    document.getElementById('btn-save-next')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleSaveAndNext();
     });
     document.getElementById('check-form')?.addEventListener('submit', handleCheckSubmit);
     document.getElementById('btn-submit-manual')?.addEventListener('click', handleManualExerciseSubmit);

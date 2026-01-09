@@ -532,7 +532,15 @@
                         </label>
                     </div>
                 </div>
-                <button type="submit" id="beer-submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition transform active:scale-95 mt-4">記録する</button>
+                <div class="grid grid-cols-2 gap-3 mt-4">
+                    <button type="submit" id="beer-submit-btn" class="col-span-1 flex flex-col items-center justify-center leading-tight bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition transform active:scale-95">
+                        <span class="text-sm">保存して閉じる</span>
+                    </button>
+                    
+                    <button type="button" id="btn-save-next" class="hidden col-span-1 bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95 flex flex-col items-center justify-center leading-tight">
+                        <span class="text-sm">保存して次へ</span>
+                    </button>
+                </div>
             </form>
         </div>
     </div>

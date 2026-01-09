@@ -800,142 +800,105 @@ export const UI = {
     },
 
     openBeerModal: (log = null, targetDate = null, isCopy = false) => {
-    const dateEl = document.getElementById('beer-date');
-    const styleSelect = document.getElementById('beer-select');
-    const sizeSelect = document.getElementById('beer-size');
-    const countInput = document.getElementById('beer-count');
-    const abvInput = document.getElementById('preset-abv');
-    const breweryInput = document.getElementById('beer-brewery');
-    const brandInput = document.getElementById('beer-brand');
-    const ratingInput = document.getElementById('beer-rating');
-    const memoInput = document.getElementById('beer-memo');
-    const submitBtn = document.getElementById('beer-submit-btn') || document.querySelector('#beer-form button[type="submit"]');
-    
-    if (submitBtn) submitBtn.id = 'beer-submit-btn';
-
-// ★追加: 「保存して次へ」ボタンの制御
-        // 既存のボタンコンテナを探すか、submitBtnの親要素を取得
-        let btnContainer = submitBtn.parentElement;
-        // もしsubmitBtnが単独なら、グリッドコンテナで包むなどの処理が必要だが、
-        // 既存HTML構造が不明確なため、動的にボタンを挿入・制御する
+        const dateEl = document.getElementById('beer-date');
+        const styleSelect = document.getElementById('beer-select');
+        const sizeSelect = document.getElementById('beer-size');
+        const countInput = document.getElementById('beer-count');
+        const abvInput = document.getElementById('preset-abv');
+        const breweryInput = document.getElementById('beer-brewery');
+        const brandInput = document.getElementById('beer-brand');
+        const ratingInput = document.getElementById('beer-rating');
+        const memoInput = document.getElementById('beer-memo');
         
-        let nextBtn = document.getElementById('btn-save-next');
-        if (!nextBtn) {
-            // ボタンが存在しなければ作成して挿入
-            nextBtn = document.createElement('button');
-            nextBtn.id = 'btn-save-next';
-            nextBtn.type = 'button'; // submitしない
-            nextBtn.className = "w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95 flex flex-col items-center justify-center leading-tight";
-            nextBtn.innerHTML = '<span class="text-sm">保存して次へ</span><span class="text-[10px] opacity-80 font-normal">Save & Next</span>';
-            
-            // レイアウト調整: submitBtnと並べるためにラッパーを作る
-            const wrapper = document.createElement('div');
-            wrapper.className = "grid grid-cols-2 gap-3 mt-4";
-            
-            submitBtn.parentNode.insertBefore(wrapper, submitBtn);
-            wrapper.appendChild(submitBtn);
-            wrapper.appendChild(nextBtn);
-            
-            // submitBtnのスタイル調整 (w-full -> width auto handled by grid)
-            submitBtn.classList.remove('w-full', 'mt-4');
-            submitBtn.classList.add('flex', 'flex-col', 'items-center', 'justify-center', 'leading-tight');
-            // テキスト調整用のspan追加等は省略（既存テキスト維持）
-        }
+        // 静的に配置されたボタンをIDで直接取得
+        const submitBtn = document.getElementById('beer-submit-btn');
+        const nextBtn = document.getElementById('btn-save-next');
 
-    // モード判定: ログがあり、かつコピーモードでない場合は「更新(編集)」
-    const isUpdateMode = log && !isCopy;
+        // モード判定: ログがあり、かつコピーモードでない場合は「更新(編集)」
+        const isUpdateMode = log && !isCopy;
 
-    // --- 日付設定 ---
-    if (dateEl) {
-        if (targetDate) {
-            // 指定された日付（カレンダータップ時など）
-            dateEl.value = targetDate;
-        } else if (isUpdateMode) {
-            // 既存ログの日付
-            dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
-        } else {
-            // 新規・コピー時は今日
-            dateEl.value = UI.getTodayString();
-        }
-    }
-
-    // --- フォーム初期化 (デフォルト値) ---
-    if (styleSelect) {
-        const modes = Store.getModes();
-        const currentMode = StateManager.beerMode; 
-        const defaultStyle = currentMode === 'mode1' ? modes.mode1 : modes.mode2;
-        styleSelect.value = defaultStyle || ''; 
-    }
-    if (sizeSelect) sizeSelect.value = '350';
-    if (countInput) countInput.value = '1';
-    if (abvInput) abvInput.value = '5.0';
-    if (breweryInput) breweryInput.value = '';
-    if (brandInput) brandInput.value = '';
-    if (ratingInput) ratingInput.value = '0';
-    if (memoInput) memoInput.value = '';
-    
-    const customAbv = document.getElementById('custom-abv');
-    const customAmount = document.getElementById('custom-amount');
-    if (customAbv) customAbv.value = '';
-    if (customAmount) customAmount.value = '';
-
-    // --- ボタンの表示切り替え ---
-    if (submitBtn) {
-            if (isUpdateMode) {
-                submitBtn.innerHTML = '<span class="text-sm">更新して閉じる</span>';
-                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
-                submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-                
-                // ★編集モードでは「次へ」ボタンを隠す
-                if (nextBtn) nextBtn.classList.add('hidden');
-                // グリッドレイアウトを解除してsubmitBtnを全幅にする
-                submitBtn.parentElement.classList.remove('grid', 'grid-cols-2', 'gap-3');
-                submitBtn.classList.add('w-full');
+        // --- 日付設定 ---
+        if (dateEl) {
+            if (targetDate) {
+                dateEl.value = targetDate;
+            } else if (isUpdateMode) {
+                dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
             } else {
-                // 新規 または コピー
-                submitBtn.innerHTML = '<span class="text-sm">保存して閉じる</span>';
-                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-                submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
-                
-                // ★新規モードでは「次へ」ボタンを表示
-                if (nextBtn) nextBtn.classList.remove('hidden');
-                // グリッドレイアウトを適用
-                submitBtn.parentElement.classList.add('grid', 'grid-cols-2', 'gap-3');
-                submitBtn.classList.remove('w-full');
+                dateEl.value = UI.getTodayString();
             }
         }
 
-    // --- データの充填 (編集 または コピー) ---
-    if (log) {
-        if (breweryInput) breweryInput.value = log.brewery || '';
-        if (brandInput) brandInput.value = log.brand || '';
-        if (ratingInput) ratingInput.value = log.rating || 0;
-        if (memoInput) memoInput.value = log.memo || '';
+        // --- フォーム初期化 (デフォルト値) ---
+        if (styleSelect) {
+            const modes = Store.getModes();
+            const currentMode = StateManager.beerMode; 
+            const defaultStyle = currentMode === 'mode1' ? modes.mode1 : modes.mode2;
+            styleSelect.value = defaultStyle || ''; 
+        }
+        if (sizeSelect) sizeSelect.value = '350';
+        if (countInput) countInput.value = '1';
+        if (abvInput) abvInput.value = '5.0';
+        if (breweryInput) breweryInput.value = '';
+        if (brandInput) brandInput.value = '';
+        if (ratingInput) ratingInput.value = '0';
+        if (memoInput) memoInput.value = '';
+        
+        const customAbv = document.getElementById('custom-abv');
+        const customAmount = document.getElementById('custom-amount');
+        if (customAbv) customAbv.value = '';
+        if (customAmount) customAmount.value = '';
 
-        const isCustom = log.style === 'Custom' || log.isCustom; 
+        // --- ボタンの表示切り替え ---
+        if (submitBtn && nextBtn) {
+            if (isUpdateMode) {
+                // 編集モード: 「更新して閉じる」のみ表示 (全幅)
+                submitBtn.innerHTML = '<span class="text-sm">更新して閉じる</span>';
+                submitBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                submitBtn.classList.add('bg-green-600', 'hover:bg-green-700', 'col-span-2'); 
+                submitBtn.classList.remove('col-span-1');
+                
+                nextBtn.classList.add('hidden');
+            } else {
+                // 新規・コピーモード: 2つのボタンを表示 (半幅ずつ)
+                submitBtn.innerHTML = '<span class="text-sm">保存して閉じる</span>';
+                submitBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'col-span-1');
+                submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700', 'col-span-2');
+                
+                nextBtn.classList.remove('hidden');
+            }
+        }
 
-        if (isCustom) {
-            UI.switchBeerInputTab('custom');
-            if (customAbv) customAbv.value = log.abv || '';
-            if (customAmount) customAmount.value = log.rawAmount || (parseInt(log.size) || '');
-            
-            const radios = document.getElementsByName('customType');
-            if (log.customType) {
-                radios.forEach(r => r.checked = (r.value === log.customType));
+        // --- データの充填 (編集 または コピー) ---
+        if (log) {
+            if (breweryInput) breweryInput.value = log.brewery || '';
+            if (brandInput) brandInput.value = log.brand || '';
+            if (ratingInput) ratingInput.value = log.rating || 0;
+            if (memoInput) memoInput.value = log.memo || '';
+
+            const isCustom = log.style === 'Custom' || log.isCustom; 
+
+            if (isCustom) {
+                UI.switchBeerInputTab('custom');
+                if (customAbv) customAbv.value = log.abv || '';
+                if (customAmount) customAmount.value = log.rawAmount || (parseInt(log.size) || '');
+                
+                const radios = document.getElementsByName('customType');
+                if (log.customType) {
+                    radios.forEach(r => r.checked = (r.value === log.customType));
+                }
+            } else {
+                UI.switchBeerInputTab('preset');
+                if (styleSelect) styleSelect.value = log.style || '';
+                if (sizeSelect) sizeSelect.value = log.size || '350';
+                if (countInput) countInput.value = log.count || 1;
+                if (abvInput) abvInput.value = log.abv || 5.0;
             }
         } else {
             UI.switchBeerInputTab('preset');
-            if (styleSelect) styleSelect.value = log.style || '';
-            if (sizeSelect) sizeSelect.value = log.size || '350';
-            if (countInput) countInput.value = log.count || 1;
-            if (abvInput) abvInput.value = log.abv || 5.0;
         }
-    } else {
-        UI.switchBeerInputTab('preset');
-    }
 
-    toggleModal('beer-modal', true);
-},
+        toggleModal('beer-modal', true);
+    },
 
     switchBeerInputTab: (mode) => {
         const presetTab = document.getElementById('tab-beer-preset');
