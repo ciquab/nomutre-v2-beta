@@ -714,6 +714,11 @@ export const UI = {
         UI._fetchLogsHandler = fn;
     },
 
+// 【新規】全データ取得ハンドラ設定メソッド
+    setFetchAllDataHandler: (fn) => {
+        UI._fetchAllDataHandler = fn;
+    },
+
     getTodayString: () => dayjs().format('YYYY-MM-DD'),
 
     applyTheme: (theme) => {
@@ -895,7 +900,7 @@ export const UI = {
         toggleModal('check-modal', true); 
     },
 
-    openManualInput: (log = null) => { 
+    openManualInput: (log = null, isCopy = false) => { 
         const select = document.getElementById('exercise-select');
         const nameEl = DOM.elements['manual-exercise-name'];
         const dateEl = DOM.elements['manual-date'];
@@ -906,13 +911,25 @@ export const UI = {
         if (!select || !dateEl || !minInput || !bonusCheck || !submitBtn) return;
 
         if (log) {
-            // 【編集モード】
-            submitBtn.textContent = '更新する';
-            submitBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
-            submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+            // logがある場合：編集またはコピー
+            
+            if (isCopy) {
+                // 【コピーモード】
+                // ボタンは「記録する」、日付は「今日」
+                submitBtn.textContent = '記録する';
+                submitBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+                submitBtn.classList.remove('bg-orange-500', 'hover:bg-orange-600');
+                dateEl.value = UI.getTodayString();
+            } else {
+                // 【編集モード】
+                // ボタンは「更新する」、日付はログの日付
+                submitBtn.textContent = '更新する';
+                submitBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                submitBtn.classList.add('bg-orange-500', 'hover:bg-orange-600');
+                dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
+            }
 
-            // 値をセット
-            dateEl.value = dayjs(log.timestamp).format('YYYY-MM-DD');
+            // --- 共通: 値の充填 ---
             minInput.value = log.rawMinutes || '';
             
             // 運動の種類を選択状態にする
@@ -1048,85 +1065,87 @@ export const UI = {
     },
 
     openLogDetail: (log) => {
-    if (!DOM.elements['log-detail-modal']) return;
+        if (!DOM.elements['log-detail-modal']) return;
 
-    // kcal基準で判定
-    const isDebt = (log.kcal !== undefined ? log.kcal : log.minutes) < 0;
-    
-    // アイコン決定
-    let iconChar = isDebt ? '🍺' : '🏃‍♀️';
-    if (isDebt && log.style && STYLE_METADATA[log.style]) {
-        iconChar = STYLE_METADATA[log.style].icon;
-    } else if (!isDebt) {
-        const exKey = log.exerciseKey;
-        if (exKey && EXERCISE[exKey]) iconChar = EXERCISE[exKey].icon;
-        else if (log.name) {
-            const exEntry = Object.values(EXERCISE).find(e => log.name.includes(e.label));
-            if(exEntry) iconChar = exEntry.icon;
-        }
-    }
-    
-    DOM.elements['detail-icon'].textContent = iconChar;
-    DOM.elements['detail-title'].textContent = log.name;
-    DOM.elements['detail-date'].textContent = dayjs(log.timestamp).format('YYYY/MM/DD HH:mm');
-    
-    const typeText = isDebt ? '借金' : '返済';
-    const signClass = isDebt ? 'text-red-500' : 'text-green-500';
-    
-    const baseEx = Store.getBaseExercise();
-    const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
-    
-    const profile = Store.getProfile();
-    const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, profile));
-    const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, profile);
-
-    DOM.elements['detail-minutes'].innerHTML = `<span class="${signClass}">${typeText} ${displayMinutes}分</span> <span class="text-xs text-gray-400 font-normal">(${baseExData.label})</span>`;
-
-    if (isDebt && (log.style || log.size || log.brewery || log.brand)) {
-        DOM.elements['detail-beer-info'].classList.remove('hidden');
-        DOM.elements['detail-style'].textContent = log.style || '-';
-        const sizeLabel = SIZE_DATA[log.size] ? SIZE_DATA[log.size].label : log.size;
-        DOM.elements['detail-size'].textContent = sizeLabel || '-';
+        // kcal基準で判定
+        const isDebt = (log.kcal !== undefined ? log.kcal : log.minutes) < 0;
         
-        const brewery = log.brewery ? `[${log.brewery}] ` : '';
-        const brand = log.brand || '';
-        DOM.elements['detail-brand'].textContent = (brewery + brand) || '-';
-    } else {
-        DOM.elements['detail-beer-info'].classList.add('hidden');
-    }
+        // アイコン決定
+        let iconChar = isDebt ? '🍺' : '🏃‍♀️';
+        if (isDebt && log.style && STYLE_METADATA[log.style]) {
+            iconChar = STYLE_METADATA[log.style].icon;
+        } else if (!isDebt) {
+            const exKey = log.exerciseKey;
+            if (exKey && EXERCISE[exKey]) iconChar = EXERCISE[exKey].icon;
+            else if (log.name) {
+                const exEntry = Object.values(EXERCISE).find(e => log.name.includes(e.label));
+                if(exEntry) iconChar = exEntry.icon;
+            }
+        }
+        
+        DOM.elements['detail-icon'].textContent = iconChar;
+        DOM.elements['detail-title'].textContent = log.name;
+        DOM.elements['detail-date'].textContent = dayjs(log.timestamp).format('YYYY/MM/DD HH:mm');
+        
+        const typeText = isDebt ? '借金' : '返済';
+        const signClass = isDebt ? 'text-red-500' : 'text-green-500';
+        
+        const baseEx = Store.getBaseExercise();
+        const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
+        
+        const profile = Store.getProfile();
+        const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, profile));
+        const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, profile);
 
-    if (log.memo || log.rating > 0) {
-        DOM.elements['detail-memo-container'].classList.remove('hidden');
-        const stars = '★'.repeat(log.rating) + '☆'.repeat(5 - log.rating);
-        DOM.elements['detail-rating'].textContent = log.rating > 0 ? stars : '';
-        DOM.elements['detail-memo'].textContent = log.memo || '';
-    } else {
-        DOM.elements['detail-memo-container'].classList.add('hidden');
-    }
+        DOM.elements['detail-minutes'].innerHTML = `<span class="${signClass}">${typeText} ${displayMinutes}分</span> <span class="text-xs text-gray-400 font-normal">(${baseExData.label})</span>`;
 
-    // ★追加: コピーボタンのイベント設定
-    const copyBtn = DOM.elements['btn-detail-copy'] || document.getElementById('btn-detail-copy');
-    if (copyBtn) {
-        if (isDebt) {
+        if (isDebt && (log.style || log.size || log.brewery || log.brand)) {
+            DOM.elements['detail-beer-info'].classList.remove('hidden');
+            DOM.elements['detail-style'].textContent = log.style || '-';
+            const sizeLabel = SIZE_DATA[log.size] ? SIZE_DATA[log.size].label : log.size;
+            DOM.elements['detail-size'].textContent = sizeLabel || '-';
+            
+            const brewery = log.brewery ? `[${log.brewery}] ` : '';
+            const brand = log.brand || '';
+            DOM.elements['detail-brand'].textContent = (brewery + brand) || '-';
+        } else {
+            DOM.elements['detail-beer-info'].classList.add('hidden');
+        }
+
+        if (log.memo || log.rating > 0) {
+            DOM.elements['detail-memo-container'].classList.remove('hidden');
+            const stars = '★'.repeat(log.rating) + '☆'.repeat(5 - log.rating);
+            DOM.elements['detail-rating'].textContent = log.rating > 0 ? stars : '';
+            DOM.elements['detail-memo'].textContent = log.memo || '';
+        } else {
+            DOM.elements['detail-memo-container'].classList.add('hidden');
+        }
+
+        // ★修正: コピーボタンの制御
+        const copyBtn = DOM.elements['btn-detail-copy'] || document.getElementById('btn-detail-copy');
+        if (copyBtn) {
+            // 常に表示 (運動でも飲酒でもコピー可能に)
             copyBtn.classList.remove('hidden');
+            
+            // イベントハンドラ再設定
             copyBtn.onclick = () => {
                 // 詳細モーダルを閉じる
                 toggleModal('log-detail-modal', false);
                 
-                // コピーモードで入力画面を開く
-                // 第3引数 true = コピーモード (内容はlogから、日付は今日、IDは新規)
-                UI.openBeerModal(log, null, true);
+                if (isDebt) {
+                    // 飲酒ログのコピー (第3引数 true = コピーモード)
+                    UI.openBeerModal(log, null, true);
+                } else {
+                    // 運動ログのコピー (第2引数 true = コピーモード)
+                    UI.openManualInput(log, true);
+                }
             };
-        } else {
-            // 運動ログのコピーは今回は対象外とする（必要なら実装可）
-            copyBtn.classList.add('hidden');
         }
-    }
 
-    DOM.elements['log-detail-modal'].dataset.id = log.id;
+        DOM.elements['log-detail-modal'].dataset.id = log.id;
 
-    toggleModal('log-detail-modal', true);
-},
+        toggleModal('log-detail-modal', true);
+    },
 
     toggleEditMode: () => {
         const isEdit = StateManager.toggleEditMode();
@@ -1584,9 +1603,14 @@ function renderQuickButtons(logs) {
 
 // 画面一括更新 (main.jsから呼ばれるメイン関数)
 export const refreshUI = async () => {
-    // 1. データ取得
-    const logs = await db.logs.toArray();
-    const checks = await db.checks.toArray();
+    // 1. データ取得 (ハンドラ経由に変更)
+    if (!UI._fetchAllDataHandler) {
+        console.warn("UI._fetchAllDataHandler is not set.");
+        return;
+    }
+    
+    // main.js から注入されたハンドラを実行
+    const { logs, checks } = await UI._fetchAllDataHandler();
     
     // ★追加: profile取得
     const profile = Store.getProfile();

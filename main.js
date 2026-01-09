@@ -1265,6 +1265,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     // ▲▲▲ 追加ここまで ▲▲▲
 
+    // ▼▼▼ 追加: 全データ取得ハンドラ (refreshUI用) ▼▼▼
+    // UI層(ui.js)のrefreshUIが、DBに直接触れずにデータを得られるようにする
+    UI.setFetchAllDataHandler(async () => {
+        const [logs, checks] = await Promise.all([
+            db.logs.toArray(),
+            db.checks.toArray()
+        ]);
+        return { logs, checks };
+    });
+    // ▲▲▲ 追加ここまで ▲▲▲
+
     const savedTheme = localStorage.getItem(APP.STORAGE_KEYS.THEME) || APP.DEFAULTS.THEME;
     UI.applyTheme(savedTheme);
 
