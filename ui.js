@@ -47,11 +47,14 @@ export const StateManager = {
 
 const DOM = {
     isInitialized: false,
-    elements: {}
+    elements: {},
+    init: () => { // initDOMをUIオブジェクト内に移動するか、外部定義の場合はUI.initDOMとして参照
+        // ... 実装は UI.initDOM 参照
+    }
 };
 
 const escapeHtml = (str) => {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str).replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[m]);
 };
 
@@ -154,10 +157,8 @@ function manageInfiniteScrollSentinel(hasMore) {
 
 // ログリスト描画 (カロリー基準対応 & 追記モード対応)
 function renderLogList(logs, isAppend) {
-    // ★修正ポイント: DOM.elements (キャッシュ) を使用
-    // ※ initDOM で 'log-list' をキャッシュ済みであることが前提
     const list = DOM.elements['log-list'] || document.getElementById('log-list');
-    if (!list) return;
+    if (!list) return; // ガード節
 
     // データ0件（初回）の場合のエンプティステート
     if (!isAppend && logs.length === 0) {
@@ -178,29 +179,22 @@ function renderLogList(logs, isAppend) {
         return;
     }
 
-    // 現在の基準運動を取得
     const baseEx = Store.getBaseExercise();
     const baseExData = EXERCISE[baseEx] || EXERCISE['stepper'];
     
-    // ヘッダーラベルの更新 (ここもキャッシュを使っても良いが、頻度が低いのでそのままDOM取得でも可。一応修正)
     const labelEl = DOM.elements['history-base-label'] || document.getElementById('history-base-label');
     if(labelEl) labelEl.textContent = `(${baseExData.icon} ${baseExData.label} 換算)`;
 
-    // ループ外でプロフィールを取得して使い回す
     const userProfile = Store.getProfile();
 
     const htmlItems = logs.map(log => {
-        // kcalがある場合は優先使用、なければminutes(互換)から計算
         const kcal = log.kcal !== undefined ? log.kcal : (log.minutes * Calc.burnRate(6.0, userProfile));
         const isDebt = kcal < 0;
         
-        // 表示用の時間を計算
         const displayMinutes = Calc.convertKcalToMinutes(Math.abs(kcal), baseEx, userProfile);
-
         const typeText = isDebt ? '借金' : '返済';
         const signClass = isDebt ? 'text-red-600 bg-red-50 dark:bg-red-900/30 dark:text-red-300' : 'text-green-600 bg-green-50 dark:bg-green-900/30 dark:text-green-300';
         
-        // アイコン決定
         let iconChar = isDebt ? '🍺' : '🏃‍♀️';
         if (isDebt && log.style && STYLE_METADATA[log.style]) {
             iconChar = STYLE_METADATA[log.style].icon;
@@ -216,31 +210,36 @@ function renderLogList(logs, isAppend) {
 
         const date = dayjs(log.timestamp).format('MM/DD HH:mm');
         
+        // --- XSS対策の適用 ---
+        const safeName = escapeHtml(log.name);
+        const safeBrewery = escapeHtml(log.brewery);
+        const safeBrand = escapeHtml(log.brand);
+        const safeMemo = escapeHtml(log.memo);
+        // -------------------
+
         let detailHtml = '';
         if (log.brewery || log.brand) {
-            detailHtml += `<p class="text-xs mt-0.5"><span class="font-bold text-gray-600 dark:text-gray-400">${escapeHtml(log.brewery)||''}</span> <span class="text-gray-600 dark:text-gray-400">${escapeHtml(log.brand)||''}</span></p>`;
+            detailHtml += `<p class="text-xs mt-0.5"><span class="font-bold text-gray-600 dark:text-gray-400">${safeBrewery||''}</span> <span class="text-gray-600 dark:text-gray-400">${safeBrand||''}</span></p>`;
         }
         
         if (isDebt && (log.rating > 0 || log.memo)) {
             const stars = '★'.repeat(log.rating) + '☆'.repeat(5 - log.rating);
             const ratingDisplay = log.rating > 0 ? `<span class="text-yellow-500 text-[10px] mr-2">${stars}</span>` : '';
-            const memoDisplay = log.memo ? `<span class="text-[10px] text-gray-400 dark:text-gray-500">"${escapeHtml(log.memo)}"</span>` : '';
+            const memoDisplay = log.memo ? `<span class="text-[10px] text-gray-400 dark:text-gray-500">"${safeMemo}"</span>` : '';
             detailHtml += `<div class="mt-1 flex flex-wrap items-center bg-gray-50 dark:bg-gray-700 rounded px-2 py-1">${ratingDisplay}${memoDisplay}</div>`;
         } else if (!isDebt && log.memo) {
-             detailHtml += `<div class="mt-1 flex flex-wrap items-center bg-orange-50 dark:bg-orange-900/20 rounded px-2 py-1"><span class="text-[10px] text-orange-500 dark:text-orange-400 font-bold">${escapeHtml(log.memo)}</span></div>`;
+             detailHtml += `<div class="mt-1 flex flex-wrap items-center bg-orange-50 dark:bg-orange-900/20 rounded px-2 py-1"><span class="text-[10px] text-orange-500 dark:text-orange-400 font-bold">${safeMemo}</span></div>`;
         }
 
         const checkHidden = StateManager.isEditMode ? '' : 'hidden';
         const checkboxHtml = `<div class="edit-checkbox-area ${checkHidden} mr-3 flex-shrink-0"><input type="checkbox" class="log-checkbox w-5 h-5 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500 bg-gray-100 dark:bg-gray-700 dark:border-gray-600" value="${log.id}"></div>`;
-
-        // 符号付き表示
         const displaySign = isDebt ? '-' : '+';
 
         return `<div class="log-item-row flex justify-between items-center p-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 group transition-colors cursor-pointer" data-id="${log.id}">
                     <div class="flex items-center flex-grow min-w-0 pr-2">
                         ${checkboxHtml}
                         <div class="mr-3 text-2xl flex-shrink-0">${iconChar}</div> <div class="min-w-0">
-                            <p class="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">${escapeHtml(log.name)}</p>
+                            <p class="font-semibold text-sm text-gray-800 dark:text-gray-200 truncate">${safeName}</p>
                             ${detailHtml} <p class="text-[10px] text-gray-400 mt-0.5">${date}</p>
                         </div>
                     </div>
@@ -261,7 +260,6 @@ function renderLogList(logs, isAppend) {
 // --- UI Component Renderers ---
 
 function renderBeerTank(currentBalanceKcal) {
-    // 【修正】kcalベースの描画ロジック
     const profile = Store.getProfile();
     const settings = {
         modes: Store.getModes(),
@@ -273,27 +271,24 @@ function renderBeerTank(currentBalanceKcal) {
         displayMinutes, 
         baseExData, 
         unitKcal, 
-        // displayRate, // 使っていない変数は削除
         targetStyle,
         liquidColor,
         isHazy 
     } = Calc.getTankDisplayData(currentBalanceKcal, StateManager.beerMode, settings, profile);
 
-    // ★修正ポイント: DOM.elements (キャッシュ) を使用
-    // initDOM で初期化されている前提
     const liquid = DOM.elements['tank-liquid'];
     const emptyIcon = DOM.elements['tank-empty-icon'];
     const cansText = DOM.elements['tank-cans'];
     const minText = DOM.elements['tank-minutes'];
     const msgContainer = DOM.elements['tank-message'];
-    // メッセージ内のpタグは静的なので、ここだけquerySelectorしてもコストは低いが、
-    // 厳密にやるならinitDOMでキャッシュすべき。今回は既存構造維持でコンテナから取得。
-    const msgText = msgContainer ? msgContainer.querySelector('p') : null;
-
-    if (!liquid || !emptyIcon || !cansText || !minText || !msgText) return;
+    
+    // ガード節: 要素が足りない場合は中断
+    if (!liquid || !emptyIcon || !cansText || !minText || !msgContainer) return;
+    
+    const msgText = msgContainer.querySelector('p');
+    if (!msgText) return;
 
     requestAnimationFrame(() => {
-        // 液色とHazyエフェクト
         liquid.style.background = liquidColor;
         if (isHazy) {
             liquid.style.filter = 'blur(1px) brightness(1.1)';
@@ -301,17 +296,16 @@ function renderBeerTank(currentBalanceKcal) {
             liquid.style.filter = 'none';
         }
 
-        if (currentBalanceKcal > 0) { // 貯金あり (kcal > 0)
+        if (currentBalanceKcal > 0) {
             emptyIcon.style.opacity = '0';
-            // タンクの最大容量(3本分)に対する割合
             let h = (canCount / APP.TANK_MAX_CANS) * 100;
-            // 視認性確保のため、極小でも少しだけ表示する (5%〜100%)
             liquid.style.height = `${Math.max(5, Math.min(100, h))}%`;
             cansText.textContent = canCount.toFixed(1);
             
-            minText.innerHTML = `+${Math.round(displayMinutes)} min <span class="text-[10px] font-normal text-gray-400">(${baseExData.icon})</span>`;
+            // XSS対策: baseExData.iconはConstants由来で安全だが念のため
+            const safeIcon = escapeHtml(baseExData.icon);
+            minText.innerHTML = `+${Math.round(displayMinutes)} min <span class="text-[10px] font-normal text-gray-400">(${safeIcon})</span>`;
             
-            // メッセージ出し分け
             if (canCount < 0.5) { 
                 msgText.textContent = 'まだガマン… まずは0.5本分！😐'; 
                 msgText.className = 'text-sm font-bold text-gray-500 dark:text-gray-400'; 
@@ -321,26 +315,25 @@ function renderBeerTank(currentBalanceKcal) {
                 msgText.className = 'text-sm font-bold text-orange-500 dark:text-orange-400'; 
             }
             else if (canCount < 2.0) { 
-                msgText.textContent = `1本飲めるよ！(${targetStyle})🍺`; 
+                // targetStyleはConstants由来だが安全化
+                msgText.textContent = `1本飲めるよ！(${escapeHtml(targetStyle)})🍺`; 
                 msgText.className = 'text-sm font-bold text-green-600 dark:text-green-400'; 
             }
             else { 
                 msgText.textContent = '余裕の貯金！最高だね！✨'; 
                 msgText.className = 'text-sm font-bold text-green-800 dark:text-green-300'; 
             }
-        } else { // 借金中 (kcal <= 0)
+        } else {
             liquid.style.height = '0%';
             emptyIcon.style.opacity = '1';
             cansText.textContent = "0.0";
             
-            // 借金の絶対値を分換算
-            minText.innerHTML = `${Math.round(Math.abs(displayMinutes))} min <span class="text-[10px] font-normal text-red-300">(${baseExData.icon})</span>`;
+            const safeIcon = escapeHtml(baseExData.icon);
+            minText.innerHTML = `${Math.round(Math.abs(displayMinutes))} min <span class="text-[10px] font-normal text-red-300">(${safeIcon})</span>`;
             minText.className = 'text-sm font-bold text-red-500 dark:text-red-400';
             
             const debtCansVal = Math.abs(canCount);
-
             if (debtCansVal > 1.5) {
-                // 1缶分を消費するのに必要な時間
                 const oneCanMin = Calc.convertKcalToMinutes(unitKcal, Store.getBaseExercise(), profile);
                 msgText.textContent = `借金山積み...😱 まずは1杯分 (${oneCanMin}分) だけ返そう！`;
                 msgText.className = 'text-sm font-bold text-orange-500 dark:text-orange-400 animate-pulse';
@@ -353,9 +346,7 @@ function renderBeerTank(currentBalanceKcal) {
 }
 
 function renderLiverRank(checks, logs) {
-    // ★追加: profile取得
     const profile = Store.getProfile();
-    // ★修正: profileを渡す
     const gradeData = Calc.getRecentGrade(checks, logs, profile);
     
     const card = DOM.elements['liver-rank-card'] || document.getElementById('liver-rank-card');
@@ -364,12 +355,13 @@ function renderLiverRank(checks, logs) {
     const bar = DOM.elements['rank-progress'] || document.getElementById('rank-progress');
     const msg = DOM.elements['rank-next-msg'] || document.getElementById('rank-next-msg');
 
+    // ガード節
     if(!card || !title || !countEl || !bar || !msg) return;
 
     card.classList.remove('hidden');
 
-    // ダークモード用にクラスを補正
     let colorClass = gradeData.color;
+    // ... (スタイルロジックは変更なし) ...
     if(colorClass.includes('text-purple-600')) colorClass += ' dark:text-purple-400';
     if(colorClass.includes('text-indigo-600')) colorClass += ' dark:text-indigo-400';
     if(colorClass.includes('text-green-600'))  colorClass += ' dark:text-green-400';
@@ -378,7 +370,6 @@ function renderLiverRank(checks, logs) {
 
     title.className = `text-xl font-black mt-1 ${colorClass}`;
     title.textContent = `${gradeData.rank} : ${gradeData.label}`;
-    
     countEl.textContent = gradeData.current;
     
     const darkBgMap = {
@@ -391,7 +382,6 @@ function renderLiverRank(checks, logs) {
     };
     
     const darkClasses = darkBgMap[gradeData.bg] || '';
-    
     card.className = `mx-2 mt-4 mb-2 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden transition-colors ${gradeData.bg} ${darkClasses} group cursor-pointer hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 active:scale-[0.99] transition-all`;
 
     requestAnimationFrame(() => {
@@ -417,40 +407,37 @@ function renderLiverRank(checks, logs) {
 
 function renderCheckStatus(checks, logs) {
     const status = DOM.elements['check-status'] || document.getElementById('check-status');
-    if(!status) return;
+    if(!status) return; // ガード節
 
     const today = dayjs();
     const yest = today.subtract(1, 'day');
-    
     let targetCheck = null; let type = 'none';
 
     if (checks.length > 0) {
         for(let i=checks.length-1; i>=0; i--) {
             const c = checks[i];
             const checkDay = dayjs(c.timestamp);
-            
             if (checkDay.isSame(today, 'day')) { targetCheck = c; type = 'today'; break; }
             if (checkDay.isSame(yest, 'day')) { targetCheck = c; type = 'yesterday'; break; }
         }
     }
 
+    // HTML生成部分は安全（静的コンテンツメイン）だが念のため
     if (type !== 'none') {
         const msg = getCheckMessage(targetCheck, logs);
         const title = type === 'today' ? "Today's Condition" : "Yesterday's Check";
-        
         const style = type === 'today' 
             ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300" 
             : "bg-white dark:bg-gray-800 border-green-400 border-l-4";
         
         let weightHtml = '';
         if(targetCheck.weight) {
-            weightHtml = `<span class="ml-2 text-[10px] bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-300 font-bold">${targetCheck.weight}kg</span>`;
+            // weightは数値だが一応
+            weightHtml = `<span class="ml-2 text-[10px] bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded text-gray-500 dark:text-gray-300 font-bold">${escapeHtml(targetCheck.weight)}kg</span>`;
         }
-
         const textColor = type === 'today' ? '' : 'text-gray-800 dark:text-gray-200';
 
         status.innerHTML = `<div class="p-3 rounded-xl border ${style} flex justify-between items-center shadow-sm transition-colors"><div class="flex items-center gap-3"><span class="text-2xl">${type==='today'?'😎':'✅'}</span><div><p class="text-[10px] opacity-70 font-bold uppercase tracking-wider">${title}</p><p class="text-sm font-bold ${textColor} flex items-center">${msg}${weightHtml}</p></div></div><button id="btn-edit-check" class="bg-white dark:bg-gray-700 bg-opacity-50 hover:bg-opacity-100 px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm border border-gray-200 dark:border-gray-600 dark:text-white">編集</button></div>`;
-        
     } else {
         const lastDate = checks.length > 0 ? dayjs(checks[checks.length-1].timestamp).format('MM/DD') : 'なし';
         status.innerHTML = `<div class="p-3 rounded-xl border bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800 flex justify-between items-center shadow-sm transition-colors"><div class="flex items-center gap-3"><span class="text-2xl">👋</span><div><p class="text-[10px] opacity-70 font-bold uppercase tracking-wider">Daily Check</p><p class="text-sm font-bold">昨日の振り返りをしましょう！</p><p class="text-[10px] opacity-60">最終: ${lastDate}</p></div></div><button id="btn-record-check" class="bg-white dark:bg-gray-800 px-4 py-2 rounded-lg text-xs font-bold transition shadow-sm border border-yellow-300 dark:border-yellow-700 animate-pulse text-yellow-800 dark:text-yellow-400">記録する</button></div>`;
@@ -466,9 +453,7 @@ function getCheckMessage(check, logs) {
 }
 
 function renderWeeklyAndHeatUp(logs, checks) {
-    // ★追加: profile取得
     const profile = Store.getProfile();
-    // ★修正: profileを渡す
     const streak = Calc.getCurrentStreak(logs, checks, profile);
     const multiplier = Calc.getStreakMultiplier(streak);
     
@@ -487,7 +472,7 @@ function renderWeeklyAndHeatUp(logs, checks) {
     }
 
     const container = DOM.elements['weekly-stamps'] || document.getElementById('weekly-stamps');
-    if (!container) return;
+    if (!container) return; // ガード節
     
     const fragment = document.createDocumentFragment();
     const today = dayjs();
@@ -495,11 +480,9 @@ function renderWeeklyAndHeatUp(logs, checks) {
 
     for (let i = 6; i >= 0; i--) {
         const d = today.subtract(i, 'day');
-        // logic.js で判定されたステータスを取得
         const status = Calc.getDayStatus(d, logs, checks, profile);
         const isToday = i === 0;
 
-        // ★変更: cursor-pointer, active:scale-95, hover効果を追加してクリック可能に見せる
         let elClass = "w-6 h-6 rounded-full flex items-center justify-center text-[10px] shadow-sm transition-all cursor-pointer hover:opacity-80 active:scale-95 ";
         let content = "";
 
@@ -529,8 +512,6 @@ function renderWeeklyAndHeatUp(logs, checks) {
         div.className = elClass;
         div.textContent = content;
         div.title = d.format('MM/DD'); 
-        
-        // ★追加: 日付データを属性に持たせる（クリック時に取得するため）
         div.dataset.date = d.format('YYYY-MM-DD');
         
         fragment.appendChild(div);
@@ -549,9 +530,9 @@ function renderWeeklyAndHeatUp(logs, checks) {
 
 function renderChart(logs, checks) {
     const ctxCanvas = document.getElementById('balanceChart');
-    if (!ctxCanvas || typeof Chart === 'undefined') return;
-    
-    // --- フィルターボタンのスタイル更新 ---
+    if (!ctxCanvas || typeof Chart === 'undefined') return; // ガード節
+
+    // フィルタボタンの更新（存在チェック付き）
     const filters = DOM.elements['chart-filters'] || document.getElementById('chart-filters');
     if(filters) {
         filters.querySelectorAll('button').forEach(btn => {
@@ -572,12 +553,10 @@ function renderChart(logs, checks) {
         const allChecksSorted = [...checks].sort((a, b) => a.timestamp - b.timestamp);
         
         const fullHistoryMap = new Map();
-        let runningKcalBalance = 0; // kcalで管理して誤差を防ぐ
+        let runningKcalBalance = 0;
         const baseEx = Store.getBaseExercise();
-        // ★追加: profile取得
         const userProfile = Store.getProfile();
 
-        // ログの集計
         allLogsSorted.forEach(l => {
             const d = dayjs(l.timestamp);
             const k = d.format('M/D');
@@ -585,7 +564,6 @@ function renderChart(logs, checks) {
             if (!fullHistoryMap.has(k)) fullHistoryMap.set(k, {plusKcal:0, minusKcal:0, balKcal:0, weight:null, ts: l.timestamp});
             const e = fullHistoryMap.get(k);
             
-            // ★修正: profileを渡す
             const kcal = l.kcal !== undefined ? l.kcal : (l.minutes * Calc.burnRate(6.0, userProfile));
             if (kcal >= 0) e.plusKcal += kcal; else e.minusKcal += kcal;
             
@@ -593,7 +571,6 @@ function renderChart(logs, checks) {
             e.balKcal = runningKcalBalance;
         });
 
-        // 体重データのマージ
         allChecksSorted.forEach(c => {
             const k = dayjs(c.timestamp).format('M/D');
             if (!fullHistoryMap.has(k)) {
@@ -602,10 +579,8 @@ function renderChart(logs, checks) {
             if (c.weight) fullHistoryMap.get(k).weight = parseFloat(c.weight);
         });
 
-        // 表示用データ配列への変換（ここで初めて「分」に換算）
         let dataArray = Array.from(fullHistoryMap.entries()).map(([label, v]) => ({
             label,
-            // ★修正: profileを渡す
             plus: Calc.convertKcalToMinutes(v.plusKcal, baseEx, userProfile),
             minus: Calc.convertKcalToMinutes(v.minusKcal, baseEx, userProfile),
             bal: Calc.convertKcalToMinutes(v.balKcal, baseEx, userProfile),
@@ -616,7 +591,6 @@ function renderChart(logs, checks) {
         if (cutoffDate > 0) dataArray = dataArray.filter(d => d.ts >= cutoffDate);
         if (dataArray.length === 0) dataArray.push({label: now.format('M/D'), plus:0, minus:0, bal:0, weight:null});
 
-        // 体重軸の最小・最大計算
         const validWeights = dataArray.map(d => d.weight).filter(w => typeof w === 'number' && !isNaN(w));
         let weightMin = 40, weightMax = 90;
         if (validWeights.length > 0) {
@@ -686,8 +660,8 @@ function renderChart(logs, checks) {
                         type: 'linear',
                         display: true,
                         position: 'right',
-                        min: weightMin, // 動的な値を適用
-                        max: weightMax, // 動的な値を適用
+                        min: weightMin,
+                        max: weightMax,
                         grid: { drawOnChartArea: false },
                         title: { display: true, text: '体重 (kg)', color: textColor },
                         ticks: { color: textColor }
@@ -1221,40 +1195,45 @@ export const UI = {
     },
 
     initDOM: () => {
-    if (DOM.isInitialized) return;
-    
-    const ids = [
-        'message-box', 'drinking-section', 
-        'beer-date', 'beer-select', 'beer-size', 'beer-count',
-        'beer-input-preset', 'beer-input-custom',
-        'custom-abv', 'custom-amount', 
-        'tab-beer-preset', 'tab-beer-custom',
-        'check-date', 'check-weight', 
-        'manual-exercise-name', 'manual-date', 
-        'weight-input', 'height-input', 'age-input', 'gender-input',
-        'setting-mode-1', 'setting-mode-2', 'setting-base-exercise', 'theme-input','setting-default-record-exercise',
-        'home-mode-select', 
-        'tank-liquid', 'tank-empty-icon', 'tank-cans', 'tank-minutes', 'tank-message',
-        'log-list', 'history-base-label',
-        'liver-rank-card', 'rank-title', 'dry-count', 'rank-progress', 'rank-next-msg',
-        'check-status', 'streak-count', 'streak-badge', 'weekly-stamps', 'weekly-status-text',
-        'chart-filters', 'quick-input-area', 'beer-select-mode-label',
-        'tab-history', 
-        'heatmap-grid',
-        'log-detail-modal', 'detail-icon', 'detail-title', 'detail-date', 'detail-minutes', 
-        'detail-beer-info', 'detail-style', 'detail-size', 'detail-brand', 
-        'detail-memo-container', 'detail-rating', 'detail-memo',
-        'btn-detail-edit', 'btn-detail-delete', 'btn-detail-copy', // ★追加: コピーボタン
-        'beer-submit-btn', 'check-submit-btn',
-        'btn-toggle-edit-mode', 'bulk-action-bar', 'btn-bulk-delete', 'bulk-selected-count',
-        'btn-select-all', 'log-container',
-        'heatmap-prev', 'heatmap-next', 'heatmap-period-label', 'btn-reset-all'
-    ];
+        if (DOM.isInitialized) return;
+        
+        const ids = [
+            'message-box', 'drinking-section', 
+            'beer-date', 'beer-select', 'beer-size', 'beer-count',
+            'beer-input-preset', 'beer-input-custom',
+            'custom-abv', 'custom-amount', 
+            'tab-beer-preset', 'tab-beer-custom',
+            'check-date', 'check-weight', 
+            'manual-exercise-name', 'manual-date', 
+            'weight-input', 'height-input', 'age-input', 'gender-input',
+            'setting-mode-1', 'setting-mode-2', 'setting-base-exercise', 'theme-input','setting-default-record-exercise',
+            'home-mode-select', 
+            'tank-liquid', 'tank-empty-icon', 'tank-cans', 'tank-minutes', 'tank-message',
+            'log-list', 'history-base-label',
+            'liver-rank-card', 'rank-title', 'dry-count', 'rank-progress', 'rank-next-msg',
+            'check-status', 'streak-count', 'streak-badge', 'weekly-stamps', 'weekly-status-text',
+            'chart-filters', 'quick-input-area', 'beer-select-mode-label',
+            'tab-history', 
+            'heatmap-grid',
+            'log-detail-modal', 'detail-icon', 'detail-title', 'detail-date', 'detail-minutes', 
+            'detail-beer-info', 'detail-style', 'detail-size', 'detail-brand', 
+            'detail-memo-container', 'detail-rating', 'detail-memo',
+            'btn-detail-edit', 'btn-detail-delete', 'btn-detail-copy',
+            'beer-submit-btn', 'check-submit-btn',
+            'btn-toggle-edit-mode', 'bulk-action-bar', 'btn-bulk-delete', 'bulk-selected-count',
+            'btn-select-all', 'log-container',
+            'heatmap-prev', 'heatmap-next', 'heatmap-period-label', 'btn-reset-all'
+        ];
 
-    ids.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) DOM.elements[id] = el;
-    });
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                DOM.elements[id] = el;
+            } else {
+                // 開発時警告: 必須IDが見つからない場合
+                console.warn(`[UI.initDOM] Element with id '${id}' not found. Check HTML structure.`);
+            }
+        });
     
     UI.injectPresetAbvInput();
     UI.injectHeatmapContainer();
@@ -1556,7 +1535,7 @@ function updateInputSuggestions(logs) {
     updateList('brand-list', brands);
 }
 
-// 【修正】消失していた「いつもの」ボタン描画関数を復活
+// 【修正】いつものボタン: サイズ拡大とアイコン強調 (Task 1: UX/Design)
 function renderQuickButtons(logs) {
     const container = document.getElementById('quick-input-area');
     if (!container) return;
@@ -1564,7 +1543,6 @@ function renderQuickButtons(logs) {
     // 履歴から頻出の組み合わせを集計
     const counts = {};
     logs.forEach(l => {
-        // 借金ログ（飲酒）のみ対象
         const isDebt = l.kcal !== undefined ? l.kcal < 0 : l.minutes < 0;
         if (isDebt && l.style && l.size) {
             const key = `${l.style}|${l.size}`;
@@ -1572,7 +1550,7 @@ function renderQuickButtons(logs) {
         }
     });
 
-    // 上位2件を抽出
+    // 上位2件を取得
     const topShortcuts = Object.keys(counts)
         .sort((a, b) => counts[b] - counts[a])
         .slice(0, 2)
@@ -1586,17 +1564,28 @@ function renderQuickButtons(logs) {
         return;
     }
 
-    // HTML生成
+    // ボタン描画
     container.innerHTML = topShortcuts.map(item => {
         const sizeLabel = SIZE_DATA[item.size] ? SIZE_DATA[item.size].label.replace(/ \(.*\)/, '') : item.size;
-        // escapeHtmlはファイル内で定義されているものを使用
-        const styleEsc = item.style.replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[m]);
         
+        // XSS対策
+        const styleEsc = escapeHtml(item.style);
+        const sizeEsc = escapeHtml(sizeLabel);
+        
+        // ★修正ポイント:
+        // 1. py-3 -> py-4 (タップ領域拡大)
+        // 2. アイコンサイズ拡大 (text-2xl) とホバーエフェクト追加
+        // 3. "HISTORY" バッジを追加してショートカットであることを明示
         return `<button data-style="${styleEsc}" data-size="${item.size}" 
-            class="quick-beer-btn flex-1 bg-white dark:bg-gray-800 border border-indigo-100 dark:border-gray-700 text-indigo-600 dark:text-indigo-400 font-bold py-3 rounded-xl shadow-sm hover:bg-indigo-50 dark:hover:bg-gray-700 text-xs flex flex-col items-center justify-center transition active:scale-95">
-            <span class="mb-0.5 text-[10px] text-indigo-400 uppercase">いつもの</span>
-            <span>${styleEsc}</span>
-            <span class="text-[10px] opacity-70">${sizeLabel}</span>
+            class="quick-beer-btn flex-1 bg-white dark:bg-gray-800 border-2 border-indigo-100 dark:border-indigo-900 
+            text-indigo-600 dark:text-indigo-300 font-bold py-4 rounded-2xl shadow-md 
+            hover:bg-indigo-50 dark:hover:bg-gray-700 flex flex-col items-center justify-center 
+            transition active:scale-95 active:border-indigo-500 relative overflow-hidden group">
+            
+            <span class="absolute top-0 right-0 bg-indigo-500 text-white text-[9px] px-2 py-0.5 rounded-bl-lg opacity-80">HISTORY</span>
+            <span class="text-2xl mb-1 group-hover:scale-110 transition-transform">🍺</span>
+            <span class="text-xs leading-tight">${styleEsc}</span>
+            <span class="text-[10px] opacity-70">${sizeEsc}</span>
         </button>`;
     }).join('');
 }

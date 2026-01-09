@@ -31,11 +31,13 @@ body { font-family: 'Inter', sans-serif; padding-bottom: 5rem; }
     backdrop-filter: blur(2px);
     transition: all 0.3s ease;
 }
-/* ダークモード時のグラス調整 */
+/* ダークモード時のグラス調整 (Task 1: 視認性向上) */
 .dark .glass-body {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.3);
-    box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 0 20px rgba(255,255,255,0.1);
+    /* 背景の透明度を少し上げ、白っぽさを出すことで「ガラス感」を強調 */
+    background: rgba(255, 255, 255, 0.1);
+    /* ボーダーの不透明度を上げて輪郭をはっきりさせる */
+    border-color: rgba(255, 255, 255, 0.4);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.15);
 }
 
 .glass-handle {
@@ -44,7 +46,7 @@ body { font-family: 'Inter', sans-serif; padding-bottom: 5rem; }
     transition: border-color 0.3s ease;
 }
 .dark .glass-handle {
-    border-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.4);
 }
 
 .liquid {
@@ -65,3 +67,16 @@ body { font-family: 'Inter', sans-serif; padding-bottom: 5rem; }
 .help-table th { background-color: #f9fafb; padding: 8px; border-bottom: 2px solid #e5e7eb; font-weight: bold; color: #4b5563; }
 .help-table td { padding: 8px; border-bottom: 1px solid #f3f4f6; color: #374151; vertical-align: top; }
 .help-table tr:last-child td { border-bottom: none; }
+
+/* ヒートマップセル調整 (Task 1: タップ領域拡大) */
+.heatmap-cell {
+    position: relative;
+    /* タッチデバイスでのタップ遅延対策 */
+    touch-action: manipulation;
+}
+.heatmap-cell::after {
+    content: '';
+    position: absolute;
+    top: -6px; bottom: -6px; left: -6px; right: -6px;
+    z-index: 10;
+}
