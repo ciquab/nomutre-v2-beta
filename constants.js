@@ -24,13 +24,6 @@ export const APP = {
     TANK_MAX_CANS: 3.0
 };
 
-// 【新規】アルコール計算用定数 (Task 3: Refactor)
-export const ALCOHOL_CONSTANTS = {
-    DENSITY: 0.8,        // アルコール比重
-    KCAL_PER_G: 7,       // アルコール1gあたりのカロリー
-    SUGAR_KCAL_ML: 0.15  // 糖質ありの場合の1mlあたり追加カロリー（推定値）
-};
-
 export const CALORIES = { 
     STYLES: { 
         // --- ラガー / すっきり系 ---

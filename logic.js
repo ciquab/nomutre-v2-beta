@@ -1,4 +1,4 @@
-import { EXERCISE, CALORIES, APP, BEER_COLORS, STYLE_COLOR_MAP, ALCOHOL_CONSTANTS } from './constants.js'; 
+import { EXERCISE, CALORIES, APP, BEER_COLORS, STYLE_COLOR_MAP } from './constants.js'; 
 import dayjs from 'https://cdn.jsdelivr.net/npm/dayjs@1.11.10/+esm';
 
 export const Calc = {
@@ -48,15 +48,11 @@ export const Calc = {
         return Calc.convertKcalToMinutes(kcal, 'stepper', profile);
     },
     
-    // 【修正】定数ファイルを使用 (Task 3: Refactor)
-    // マジックナンバー(0.8, 7, 0.15)を定数に置き換え
     calculateAlcoholKcal: (ml, abv, type) => {
-        const alcoholG = ml * (abv / 100) * ALCOHOL_CONSTANTS.DENSITY;
-        let kcal = alcoholG * ALCOHOL_CONSTANTS.KCAL_PER_G;
-        
-        // 糖質ありの場合の追加カロリー
+        const alcoholG = ml * (abv / 100) * 0.8;
+        let kcal = alcoholG * 7;
         if (type === 'sweet') {
-             kcal += ml * ALCOHOL_CONSTANTS.SUGAR_KCAL_ML;
+             kcal += ml * 0.15;
         }
         return kcal;
     },
@@ -136,66 +132,18 @@ export const Calc = {
         return Calc.getStreakAtDate(dayjs(), logs, checks, profile);
     },
 
-    // 【修正】計算量削減 (Task 2: Performance)
-    // 30日分の日付を走査する際、毎回logs全件をfilterしていた処理をMap/Setで高速化
+    // profile 引数を追加
     getStreakAtDate: (dateInput, logs, checks, profile) => {
         let streak = 0;
         const baseDate = dayjs(dateInput); 
-        
-        // 1. ログを日付文字列キーのMapに変換 (計算量: O(N))
-        // これにより、ループ内での検索が O(1) になります
-        const logsByDate = new Map();
-        logs.forEach(l => {
-            const key = dayjs(l.timestamp).format('YYYY-MM-DD');
-            if (!logsByDate.has(key)) logsByDate.set(key, []);
-            logsByDate.get(key).push(l);
-        });
-
-        // 2. 休肝日チェックを日付文字列Setに変換 (計算量: O(M))
-        const dryCheckDates = new Set();
-        checks.forEach(c => {
-            if (c.isDryDay) dryCheckDates.add(dayjs(c.timestamp).format('YYYY-MM-DD'));
-        });
-
-        // 3. ループ処理 (Map/Set参照により O(1) * 30回)
         for (let i = 1; i <= 30; i++) {
             const d = baseDate.subtract(i, 'day');
-            const dStr = d.format('YYYY-MM-DD');
+            const status = Calc.getDayStatus(d, logs, checks, profile);
             
-            // Mapからその日のログを即座に取得
-            const dayLogs = logsByDate.get(dStr) || [];
-            
-            // --- getDayStatusのロジックをインライン展開して最適化 ---
-            let balance = 0;
-            let hasAlcohol = false;
-            let hasExercise = false;
-
-            dayLogs.forEach(l => {
-                const val = l.kcal !== undefined ? l.kcal : (l.minutes * Calc.burnRate(6.0, profile));
-                balance += val;
-                if (val < 0) hasAlcohol = true;
-                if (val > 0) hasExercise = true;
-            });
-
-            const isRepaid = hasAlcohol && balance >= -1;
-            const isDryCheck = dryCheckDates.has(dStr);
-
-            let status = 'none';
-            if (isDryCheck) {
-                status = hasExercise ? 'rest_exercise' : 'rest';
-            } else if (hasAlcohol) {
-                if (isRepaid) status = 'drink_exercise_success';
-                else status = hasExercise ? 'drink_exercise' : 'drink';
-            } else if (hasExercise) {
-                status = 'exercise';
-            }
-            // -----------------------------------------------------
-            
-            // ストリーク継続条件の判定
             if (status === 'rest' || status === 'rest_exercise' || status === 'drink_exercise_success') {
                 streak++;
             } else {
-                break; // 途切れたら終了
+                break;
             }
         }
         return streak;
@@ -227,45 +175,30 @@ export const Calc = {
         const PERIOD_DAYS = 28; 
         
         let startTs = NOW.valueOf();
-        
-        // 修正: 配列が存在し、かつ要素がある場合のみ処理するガード節を追加
-        // また、インデックス固定アクセス (checks[0], logs[logs.length-1]) を廃止し、
-        // reduceを使って安全に最小値（最古の日付）を取得する
-        if (checks && checks.length > 0) {
-            const minCheckTs = checks.reduce((min, c) => Math.min(min, c.timestamp), startTs);
-            startTs = Math.min(startTs, minCheckTs);
-        }
-
-        if (logs && logs.length > 0) {
-            const minLogTs = logs.reduce((min, l) => Math.min(min, l.timestamp), startTs);
-            startTs = Math.min(startTs, minLogTs);
-        }
+        if (checks.length > 0) startTs = Math.min(startTs, checks[0].timestamp);
+        if (logs.length > 0) startTs = Math.min(startTs, logs[logs.length-1].timestamp); 
 
         const daysSinceStart = Math.max(1, NOW.diff(dayjs(startTs), 'day'));
         const cutoffDate = NOW.subtract(PERIOD_DAYS, 'day').startOf('day');
 
         const successDays = new Set();
 
-        if (checks) {
-            checks.forEach(c => {
-                if (c.isDryDay && dayjs(c.timestamp).isAfter(cutoffDate)) {
-                    successDays.add(dayjs(c.timestamp).format('YYYY-MM-DD'));
-                }
-            });
-        }
+        checks.forEach(c => {
+            if (c.isDryDay && dayjs(c.timestamp).isAfter(cutoffDate)) {
+                successDays.add(dayjs(c.timestamp).format('YYYY-MM-DD'));
+            }
+        });
 
         const dailyBalances = {};
-        if (logs) {
-            logs.forEach(l => {
-                const d = dayjs(l.timestamp);
-                if (d.isAfter(cutoffDate)) {
-                    const key = d.format('YYYY-MM-DD');
-                    // profileを使用して計算
-                    const val = l.kcal !== undefined ? l.kcal : (l.minutes * Calc.burnRate(6.0, profile)); 
-                    dailyBalances[key] = (dailyBalances[key] || 0) + val;
-                }
-            });
-        }
+        logs.forEach(l => {
+            const d = dayjs(l.timestamp);
+            if (d.isAfter(cutoffDate)) {
+                const key = d.format('YYYY-MM-DD');
+                // profile を渡して計算
+                const val = l.kcal !== undefined ? l.kcal : (l.minutes * Calc.burnRate(6.0, profile)); 
+                dailyBalances[key] = (dailyBalances[key] || 0) + val;
+            }
+        });
 
         Object.keys(dailyBalances).forEach(dateStr => {
             if (dailyBalances[dateStr] >= 0) {
