@@ -214,41 +214,17 @@ const recalcDailyExercises = async (targetTs) => {
     });
 };
 
-// 【修正版】飲酒ログ登録 (カロリー保存 + 同日の休肝日設定解除)
-const handleBeerSubmit = async (e) => {
-    e.preventDefault();
-    const dateVal = document.getElementById('beer-date').value;
-    const brewery = document.getElementById('beer-brewery').value;
-    const brand = document.getElementById('beer-brand').value;
-    const rating = parseInt(document.getElementById('beer-rating').value) || 0;
-    const memo = document.getElementById('beer-memo').value;
-    const useUntappd = document.getElementById('untappd-check').checked;
-    
-    const ts = dateVal ? getDateTimestamp(dateVal) : Date.now();
-    const isCustom = !document.getElementById('beer-input-custom').classList.contains('hidden');
-    
-    let logName = '';
-    let logStyle = '';
-    let logSize = '';
+// 【新規】飲酒ログ保存のコア処理 (UI操作を含まない純粋な保存処理)
+const saveBeerLog = async (inputData, isUpdate = false, updateId = null) => {
+    // 1. カロリー計算
     let totalKcal = 0;
-    
-    let saveCount = 1;
-    let saveAbv = 0;
-    let saveIsCustom = false;
-    let saveCustomType = null;
-    let saveRawAmount = null;
+    let logName = '', logStyle = '', logSize = '';
+    let saveCount = 1, saveAbv = 0;
+    let saveIsCustom = false, saveCustomType = null, saveRawAmount = null;
 
-    if (isCustom) {
-        const abv = parseFloat(document.getElementById('custom-abv').value);
-        const ml = parseFloat(document.getElementById('custom-amount').value);
-        const type = document.querySelector('input[name="customType"]:checked').value;
-
-        if (isNaN(abv) || isNaN(ml) || abv < 0 || ml <= 0) {
-            return UI.showMessage('正しい数値を入力してください', 'error');
-        }
-
+    if (inputData.isCustom) {
+        const { abv, ml, type } = inputData;
         totalKcal = Calc.calculateAlcoholKcal(ml, abv, type);
-        
         logName = `Custom ${abv}% ${ml}ml` + (type==='dry' ? '🔥' : '🍺');
         logStyle = 'Custom';
         logSize = `${ml}ml`;
@@ -259,33 +235,26 @@ const handleBeerSubmit = async (e) => {
         saveCustomType = type;
         saveRawAmount = ml;
     } else {
-        const s = document.getElementById('beer-select').value;
-        const z = document.getElementById('beer-size').value;
-        const c = parseFloat(document.getElementById('beer-count').value);
-        const userAbv = parseFloat(document.getElementById('preset-abv').value);
-
-        if (!s || !z || !c || c <= 0 || isNaN(userAbv) || userAbv < 0) {
-            return UI.showMessage('正しい数値を入力してください', 'error');
-        }
-
-        const sizeMl = parseFloat(z);
-        const spec = STYLE_SPECS[s] || { type: 'sweet' };
+        const { style, size, count, userAbv } = inputData;
+        // マスタデータ参照 (main.js内のSTYLE_SPECSが必要)
+        // ※STYLE_SPECSはスコープ内にある前提
+        const spec = STYLE_SPECS[style] || { type: 'sweet' };
+        const sizeMl = parseFloat(size);
         
         const unitKcal = Calc.calculateAlcoholKcal(sizeMl, userAbv, spec.type);
-        totalKcal = unitKcal * c;
+        totalKcal = unitKcal * count;
 
-        logName = `${s} (${userAbv}%) x${c}`;
-        logStyle = s;
-        logSize = z;
+        logName = `${style} (${userAbv}%) x${count}`;
+        logStyle = style;
+        logSize = size;
         
-        saveCount = c;
+        saveCount = count;
         saveAbv = userAbv;
-        saveIsCustom = false;
     }
-    
-    // ★修正: profileを渡す
-    const min = Calc.stepperEq(totalKcal, Store.getProfile());
-    
+
+    const profile = Store.getProfile();
+    const min = Calc.stepperEq(totalKcal, profile);
+
     const logData = { 
         name: logName, 
         type: '借金', 
@@ -293,11 +262,11 @@ const handleBeerSubmit = async (e) => {
         size: logSize,
         kcal: -totalKcal, 
         minutes: -Math.round(min), 
-        timestamp: ts, 
-        brewery: brewery, 
-        brand: brand, 
-        rating: rating, 
-        memo: memo,
+        timestamp: inputData.timestamp, 
+        brewery: inputData.brewery, 
+        brand: inputData.brand, 
+        rating: inputData.rating, 
+        memo: inputData.memo,
         count: saveCount, 
         abv: saveAbv, 
         isCustom: saveIsCustom, 
@@ -305,59 +274,80 @@ const handleBeerSubmit = async (e) => {
         rawAmount: saveRawAmount
     };
 
+    // 2. DB更新
     let oldTimestamp = null;
-
-    if (editingLogId) {
-        // ★追加: 更新を実行する前に、現在のDBから古いデータを取得して日付を保存
-        const oldLog = await db.logs.get(editingLogId);
-        if (oldLog) {
-            oldTimestamp = oldLog.timestamp;
-        }
-
-        await db.logs.update(editingLogId, logData);
-        UI.showMessage('記録を更新しました', 'success');
-        editingLogId = null;
+    if (isUpdate && updateId) {
+        const oldLog = await db.logs.get(updateId);
+        if (oldLog) oldTimestamp = oldLog.timestamp;
+        await db.logs.update(updateId, logData);
     } else {
         await db.logs.add(logData);
-        UI.showMessage('飲酒を記録しました 🍺', 'success'); 
     }
-    
-    // 同日の休肝日設定をチェックし、もしあれば解除する
+
+    // 3. 休肝日解除チェック
     const allChecks = await db.checks.toArray();
-    const targetCheck = allChecks.find(c => Calc.isSameDay(c.timestamp, ts));
-    
+    const targetCheck = allChecks.find(c => Calc.isSameDay(c.timestamp, inputData.timestamp));
     if (targetCheck && targetCheck.isDryDay) {
         await db.checks.update(targetCheck.id, { isDryDay: false });
     }
 
-    // 1. 今回記録した日付（今日など）の運動ボーナスを再計算
-    await recalcDailyExercises(ts);
-
-    // ★追加: もし日付を変更していた場合（昨日→今日など）、変更元の日付（昨日）も再計算する
-    // （昨日の飲酒記録が消えたことで、昨日の運動ボーナスが復活する可能性があるため）
-    if (oldTimestamp && !Calc.isSameDay(oldTimestamp, ts)) {
+    // 4. 運動ボーナス再計算
+    await recalcDailyExercises(inputData.timestamp);
+    if (oldTimestamp && !Calc.isSameDay(oldTimestamp, inputData.timestamp)) {
         await recalcDailyExercises(oldTimestamp);
     }
 
-    toggleModal('beer-modal', false); 
-    await refreshUI();
+    return { success: true, logName };
+};
 
-    document.getElementById('beer-brewery').value = '';
-    document.getElementById('beer-brand').value = '';
-    document.getElementById('beer-rating').value = '0';
-    document.getElementById('beer-memo').value = '';
-    document.getElementById('untappd-check').checked = false;
-    document.getElementById('beer-count').value = '';
+// 【修正】フォーム送信ハンドラ (saveBeerLogを利用)
+const handleBeerSubmit = async (e) => {
+    e.preventDefault();
     
-    if(document.getElementById('custom-abv')) document.getElementById('custom-abv').value = '';
-    if(document.getElementById('custom-amount')) document.getElementById('custom-amount').value = '';
+    // UIからのデータ収集
+    const inputData = UI.getBeerFormData();
+    if (!inputData.isValid) {
+        return UI.showMessage('入力値を確認してください', 'error');
+    }
 
-    if (useUntappd) {
-        let searchTerm = brand;
-        if (brewery) searchTerm = `${brewery} ${brand}`;
-        if (!searchTerm) searchTerm = logStyle;
+    // 保存実行
+    await saveBeerLog(inputData, !!editingLogId, editingLogId);
+
+    // UI更新 (モーダルを閉じる)
+    UI.showMessage(editingLogId ? '記録を更新しました' : '飲酒を記録しました 🍺', 'success');
+    editingLogId = null;
+    toggleModal('beer-modal', false);
+    
+    await refreshUI();
+    UI.resetBeerForm(); // フォームクリア
+
+    // Untappd連携
+    if (inputData.useUntappd) {
+        let searchTerm = inputData.brand;
+        if (inputData.brewery) searchTerm = `${inputData.brewery} ${inputData.brand}`;
+        if (!searchTerm) searchTerm = inputData.style;
         ExternalApp.searchUntappd(searchTerm);
     }
+};
+
+// 【新規】「保存して次へ」ハンドラ
+const handleSaveAndNext = async () => {
+    // データ収集
+    const inputData = UI.getBeerFormData();
+    if (!inputData.isValid) {
+        return UI.showMessage('入力値を確認してください', 'error');
+    }
+
+    // 保存実行 (常に新規作成扱い)
+    const result = await saveBeerLog(inputData, false, null);
+
+    // UI更新 (モーダル閉じない)
+    UI.showMessage(`保存しました: ${result.logName}`, 'success');
+    await refreshUI(); // 裏でリスト更新
+    
+    // フォームリセット (日付とUntappdチェックは維持したい場合は調整)
+    // ここでは部分リセットを行う
+    UI.resetBeerForm(true); // true = keepDate
 };
 
 const handleManualExerciseSubmit = async () => { 
@@ -1079,6 +1069,16 @@ function bindEvents() {
     document.getElementById('btn-detail-share')?.addEventListener('click', handleDetailShare);
     
     document.getElementById('beer-form')?.addEventListener('submit', handleBeerSubmit);
+    
+    // ★追加: 「保存して次へ」ボタンのイベントリスナー
+    // UI側で動的に追加されるため、documentレベルでデリゲートするか、UI.openBeerModal内でbindする手もあるが、
+    // ここでは静的にHTMLに存在しないため、イベントデリゲーションを使用する
+    document.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'btn-save-next') {
+            e.preventDefault();
+            handleSaveAndNext();
+        }
+    });
     document.getElementById('check-form')?.addEventListener('submit', handleCheckSubmit);
     document.getElementById('btn-submit-manual')?.addEventListener('click', handleManualExerciseSubmit);
     document.getElementById('btn-save-settings')?.addEventListener('click', handleSaveSettings);
