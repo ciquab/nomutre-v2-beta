@@ -1426,9 +1426,9 @@ function renderHeatmap(checks, logs) {
             // 【ここを追加】完済した場合も、青色（drink_exercise）と同じ見た目でOKだが、
             // ボーダーをゴールドにするなど「偉い！」感を出すことも可能
             case 'drink_exercise_success':
-                bgClass = 'bg-blue-500 border-2 border-yellow-400 shadow-md'; // 完済は枠線を強調！
+                bgClass = 'bg-blue-500 border-2 border-yellow-400 shadow-md ring-2 ring-yellow-200 dark:ring-yellow-900'; // 完済は枠線を強調！
                 textClass = 'text-white font-bold';
-                icon = '🔥'; // アイコンも燃やす
+                icon = '🏅'; // アイコンも燃やす
                 break;
             case 'drink_exercise': // 飲酒+運動 (Blue)
                 bgClass = 'bg-blue-400 border border-blue-500 shadow-sm';
@@ -1460,6 +1460,35 @@ function renderHeatmap(checks, logs) {
     }
 
     grid.innerHTML = html;
+}
+
+// 【新規】サジェスト機能の更新
+function updateInputSuggestions(logs) {
+    const breweries = new Set();
+    const brands = new Set();
+
+    logs.forEach(log => {
+        if (log.brewery && typeof log.brewery === 'string' && log.brewery.trim() !== '') {
+            breweries.add(log.brewery.trim());
+        }
+        if (log.brand && typeof log.brand === 'string' && log.brand.trim() !== '') {
+            brands.add(log.brand.trim());
+        }
+    });
+
+    const updateList = (id, set) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.innerHTML = '';
+        set.forEach(val => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            el.appendChild(opt);
+        });
+    };
+
+    updateList('brewery-list', breweries);
+    updateList('brand-list', brands);
 }
 
 // 【修正】消失していた「いつもの」ボタン描画関数を復活
@@ -1539,4 +1568,6 @@ export const refreshUI = async () => {
     // 5. ヒートマップ描画
     renderHeatmap(checks, logs);
 
+    // 6. 入力サジェスト更新 (Phase 3)
+    updateInputSuggestions(logs);
 };
