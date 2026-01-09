@@ -1250,6 +1250,21 @@ function bindEvents() {
 document.addEventListener('DOMContentLoaded', async () => {
     UI.initDOM();
 
+    // ▼▼▼ 追加: データ取得ハンドラの注入 (UI層からDBロジックを分離) ▼▼▼
+    // ui.js の updateLogListView から呼び出されます
+    UI.setFetchLogsHandler(async (offset, limit) => {
+        // Dexie.jsを使ってログを取得 (タイムスタンプ降順)
+        const totalCount = await db.logs.count();
+        const logs = await db.logs
+            .orderBy('timestamp')
+            .reverse()
+            .offset(offset)
+            .limit(limit)
+            .toArray();
+        return { logs, totalCount };
+    });
+    // ▲▲▲ 追加ここまで ▲▲▲
+
     const savedTheme = localStorage.getItem(APP.STORAGE_KEYS.THEME) || APP.DEFAULTS.THEME;
     UI.applyTheme(savedTheme);
 
@@ -1291,7 +1306,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 【追加】設定モーダルの換算基準プルダウン生成 (これが抜けていました)
+    // 設定モーダルの換算基準プルダウン生成
     const populateModeSelect = (id) => {
         const el = document.getElementById(id);
         if(!el) return;
