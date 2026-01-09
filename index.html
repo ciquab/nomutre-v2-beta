@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ノムトレ - 借金返済ダイエット</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4F46E5">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/dexie@3.2.4/dist/dexie.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { light: '#E0E7FF', DEFAULT: '#4F46E5', dark: '#3730A3' },
+                        beer: { lager: '#FBBF24', hazy: '#F59E0B' },
+                        dark: { bg: '#111827', card: '#1F2937', input: '#374151' }
+                    },
+                    animation: {
+                        'wave': 'wave 2s infinite linear',
+                        'bubble': 'bubble 2s infinite ease-in',
+                        'bounce-horizontal': 'swipe 1.5s infinite ease-in-out',
+                    },
+                    keyframes: {
+                        wave: {
+                            '0%': { transform: 'translateX(0)' },
+                            '100%': { transform: 'translateX(-50%)' },
+                        },
+                        bubble: {
+                            '0%': { bottom: '-10%', opacity: '0' },
+                            '50%': { opacity: '1' },
+                            '100%': { bottom: '110%', opacity: '0' },
+                        },
+                        swipe: {
+                            '0%, 100%': { transform: 'translateX(-20%)' },
+                            '50%': { transform: 'translateX(20%)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <script>
+        (function() {
+            try {
+                const savedTheme = localStorage.getItem('hazy_payback_theme') || 'system';
+                const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (savedTheme === 'dark' || (savedTheme === 'system' && systemDark)) {
+                    document.documentElement.classList.add('dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                }
+            } catch (e) {}
+        })();
+    </script>
+
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body class="min-h-screen text-gray-800 dark:text-gray-100 bg-gray-50 dark:bg-gray-900 select-none overscroll-none transition-colors duration-300">
+<div id="global-error-overlay" class="fixed inset-0 z-[100] bg-gray-900 bg-opacity-95 hidden flex flex-col items-center justify-center p-6 text-white text-center backdrop-blur-sm">
+        <div class="text-6xl mb-4">😵</div>
+        <h2 class="text-2xl font-black mb-2">Oops! Error</h2>
+        <p class="text-sm text-gray-400 mb-6">予期せぬエラーが発生しました。</p>
+        
+        <div class="w-full max-w-md bg-black bg-opacity-50 p-4 rounded-xl border border-gray-700 mb-6 text-left overflow-auto max-h-48">
+            <code id="error-details" class="text-xs font-mono text-red-400 break-all select-all"></code>
+        </div>
+        
+        <div class="flex gap-4 w-full max-w-md">
+            <button id="btn-copy-error" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition">
+                ログをコピー
+            </button>
+            <button onclick="location.reload()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition shadow-lg shadow-indigo-500/30">
+                再読み込み
+            </button>
+        </div>
+        <button onclick="document.getElementById('global-error-overlay').classList.add('hidden')" class="mt-8 text-xs text-gray-500 hover:text-white underline">
+            閉じて操作を続ける (非推奨)
+        </button>
+    </div>
+    <div class="app-header-bg pt-12 pb-6 px-4 rounded-b-[2rem] shadow-sm border-b border-white dark:border-gray-800 sticky top-0 z-50 transition-colors duration-300">
+        <div class="container mx-auto max-w-xl relative">
+            
+            <button id="btn-open-help" class="absolute top-0 left-2 text-2xl hover:opacity-70 transition z-30 filter drop-shadow-sm p-3" aria-label="ヘルプ">
+               ❓
+            </button>
+
+            <button id="btn-open-settings" class="absolute top-0 right-2 text-2xl hover:opacity-70 transition z-30 filter drop-shadow-sm p-3" aria-label="設定">
+               ⚙️
+            </button>
+
+            <div class="flex flex-col items-center justify-center">
+                <div class="flex items-center justify-center gap-2 mb-1">
+                    <span class="text-3xl filter drop-shadow-md">🍺</span>
+                    <h1 class="text-3xl font-black tracking-tighter text-gray-800 dark:text-white">
+                        ノム<span class="text-orange-500">トレ</span>
+                    </h1>
+                    <span class="text-3xl filter drop-shadow-md">🏃‍♀️</span>
+                </div>
+                <div class="flex items-center justify-center gap-2 opacity-60">
+                    <span class="px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wide">IndexedDB</span>
+                    <span class="text-xs text-gray-400 font-medium">v12.12</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="swipe-area" class="min-h-[calc(100vh-12rem)] touch-pan-y">
+        <div class="container mx-auto p-4 max-w-xl relative">
+            <div id="message-box" class="fixed top-4 left-1/2 transform -translate-x-1/2 p-3 text-white rounded-lg shadow-lg hidden z-[100] text-center font-bold text-sm w-11/12 max-w-sm transition-all"></div>
+
+            <div id="tab-home" class="tab-content active">
+                <h2 class="text-xl font-black text-gray-800 dark:text-gray-100 mb-4 px-2 flex items-center gap-2">🍺 現在の状況</h2>
+                
+                <div class="flex justify-center mb-6 opacity-0 transition-opacity duration-500" id="mode-selector">
+    <div class="bg-white dark:bg-gray-800 py-2 px-5 rounded-full shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-3">
+        <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">基準</span>
+        <div class="relative group">
+            <select id="home-mode-select" class="appearance-none bg-transparent font-bold text-xs text-indigo-600 dark:text-indigo-400 focus:outline-none pr-5 text-right cursor-pointer">
+                </select>
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center text-gray-400 group-hover:text-indigo-500 transition-colors">
+                <span class="text-xs">▼</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+                <div class="flex justify-center items-center gap-4 mb-8 px-2 relative">
+                    <div class="glass-container">
+                        <div class="glass-handle"></div>
+                        <div class="glass-body">
+                            <div id="tank-liquid" class="liquid mode1" style="height: 0%;">
+                                <div class="wave-surface"></div>
+                            </div>
+                            <div id="tank-empty-icon" class="absolute inset-0 flex items-center justify-center text-4xl opacity-0 transition-opacity duration-500">💔</div>
+                        </div>
+                    </div>
+                    <div class="text-left flex-1 min-w-0 pl-2">
+                        <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">DRINKABLE</p>
+                        <div class="flex items-baseline">
+                            <p id="tank-cans" class="text-4xl font-black text-gray-800 dark:text-white leading-none">0.0</p>
+                            <span class="text-xs font-bold text-gray-500 dark:text-gray-400 ml-1">本分</span>
+                        </div>
+                        <p class="text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-3">飲める！</p>
+                        <div class="border-t border-gray-200 dark:border-gray-700 pt-2 mb-3">
+                            <p class="text-xs text-gray-400 font-bold">SAVINGS</p>
+                            <p id="tank-minutes" class="text-sm font-bold text-gray-600 dark:text-gray-300">+0 min</p>
+                        </div>
+                        <button id="btn-share-sns" class="bg-black dark:bg-white dark:text-black text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-md active:scale-95 transition hover:bg-gray-800 dark:hover:bg-gray-200">
+                            <span>🚀</span> シェアする
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="tank-message" class="text-center p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 mx-2 transition-colors">
+                    <p class="text-sm font-bold text-gray-700 dark:text-gray-200">データを読み込み中...</p>
+                </div>
+                
+                <div id="liver-rank-card" class="mx-2 mt-4 mb-2 p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden hidden transition-all cursor-pointer group hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800 active:scale-[0.99]">
+    
+    <div class="absolute top-3 right-3 text-gray-200 dark:text-gray-700 group-hover:text-indigo-400 transition-colors z-20">
+        <span class="text-sm">✏️</span>
+    </div>
+                    <div class="flex justify-between items-end mb-2 relative z-10">
+                        <div>
+                            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">LIVER RANK</p>
+                            <h3 class="text-xl font-black mt-1" id="rank-title">Loading...</h3>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-2xl font-black text-gray-800 dark:text-white" id="dry-count">0</span>
+                            <span class="text-xs font-bold text-gray-400">日</span>
+                        </div>
+                    </div>
+                    <div class="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2 mb-1">
+                        <div id="rank-progress" class="bg-indigo-500 h-2 rounded-full transition-all duration-1000" style="width: 0%"></div>
+                    </div>
+                    <p class="text-xs text-right text-gray-400 font-bold" id="rank-next-msg">次のランクまであと ? 日</p>
+                </div>
+
+                <div class="mx-2 mt-4 mb-2 flex gap-3">
+                    <div class="w-1/3 bg-orange-50 dark:bg-gray-800 rounded-2xl p-3 border border-orange-100 dark:border-gray-700 flex flex-col items-center justify-center relative overflow-hidden shadow-sm transition-colors">
+                        <div class="absolute top-0 right-0 p-1 opacity-10 text-4xl">🔥</div>
+                        <p class="text-xs font-bold text-orange-400 uppercase tracking-widest mb-1">STREAK</p>
+                        <div class="flex items-baseline">
+                            <span id="streak-count" class="text-3xl font-black text-orange-600 dark:text-orange-500">0</span>
+                            <span class="text-xs font-bold text-orange-400 ml-1">Days</span>
+                        </div>
+                        <div id="streak-badge" class="mt-1 px-2 py-0.5 bg-white dark:bg-gray-700 rounded-full text-xs font-bold text-gray-400 shadow-sm border border-orange-100 dark:border-gray-600">
+                            x1.0 Bonus
+                        </div>
+                    </div>
+
+                    <div class="w-2/3 bg-white dark:bg-gray-800 rounded-2xl p-3 border border-gray-100 dark:border-gray-700 shadow-sm flex flex-col justify-center transition-colors">
+                        <div class="flex justify-between items-end mb-2">
+                            <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">LAST 7 DAYS</p>
+                            <span id="weekly-status-text" class="text-xs font-bold text-indigo-500 dark:text-indigo-400">Keep it up!</span>
+                        </div>
+                        <div id="weekly-stamps" class="flex justify-between items-center px-1">
+                            </div>
+                    </div>
+                </div>
+
+                <div id="check-status" class="mt-6 mx-2"></div>
+            </div>
+
+            <div id="tab-record" class="tab-content">
+                <h2 class="text-xl font-black text-gray-800 dark:text-gray-100 mb-4 px-2 flex items-center gap-2">🏃‍♀️ 運動を記録</h2>
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6 relative overflow-hidden transition-colors">
+                    <div class="absolute top-0 left-0 w-2 h-full bg-green-500"></div>
+                    <div class="mb-4">
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 block">EXERCISE MENU</label>
+                        <select id="exercise-select" class="w-full p-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-800 dark:text-white font-bold focus:ring-2 focus:ring-green-500 outline-none"></select>
+                    </div>
+                    <div class="text-center mb-6">
+                        <div id="timer-display" class="text-6xl font-mono font-bold text-gray-700 dark:text-gray-200 tracking-tighter tabular-nums">00:00</div>
+                        <p id="timer-status" class="text-xs text-gray-400 mt-1 font-medium">READY</p>
+                    </div>
+                    <div class="flex justify-center w-full gap-3">
+    <button id="start-stepper-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl shadow-green-200 dark:shadow-none shadow-lg transition transform active:scale-95 text-lg">START</button>
+    <button id="manual-record-btn" class="flex-1 bg-white dark:bg-gray-700 border-2 border-green-500 text-green-600 dark:text-green-400 font-bold py-3.5 rounded-xl shadow-sm transition transform active:scale-95 text-lg">手入力</button>
+    
+    <button id="pause-stepper-btn" class="hidden flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-4 rounded-xl shadow-yellow-200 dark:shadow-none shadow-lg transition transform active:scale-95 text-lg">PAUSE</button>
+    
+    <button id="resume-stepper-btn" class="hidden flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-green-200 dark:shadow-none shadow-lg transition transform active:scale-95 text-lg">RESUME</button>
+
+    <button id="stop-stepper-btn" class="hidden flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-4 rounded-xl shadow-red-200 dark:shadow-none shadow-lg transition transform active:scale-95 text-lg animate-pulse">STOP & SAVE</button>
+</div>
+                </div>
+
+                <div id="quick-input-area" class="flex gap-2 mb-2 px-1"></div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <button id="btn-open-beer" class="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold py-4 rounded-2xl shadow-sm transition transform active:scale-95 flex flex-col items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <span class="text-3xl mb-1">🍺</span><span class="text-xs text-gray-400 font-bold mt-1">RECORD DEBT</span><span class="text-sm">飲酒を記録</span>
+                    </button>
+                    <button id="btn-open-check" class="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold py-4 rounded-2xl shadow-sm transition transform active:scale-95 flex flex-col items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <span class="text-3xl mb-1">✅</span><span class="text-xs text-gray-400 font-bold mt-1">DAILY CHECK</span><span class="text-sm">健康チェック</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="tab-history" class="tab-content">
+                <h2 class="text-xl font-black text-gray-800 dark:text-gray-100 mb-4 px-2 flex items-center gap-2">📊 活動の履歴</h2>
+                
+                <div id="heatmap-wrapper" class="mb-6 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 transition-colors">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider">Continuity</h3>
+                        <div class="flex items-center gap-2">
+                            <button id="heatmap-prev" class="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 active:scale-95 transition">◀</button>
+                            <span id="heatmap-period-label" class="text-xs font-bold text-gray-500">Last 5 Weeks</span>
+                            <button id="heatmap-next" class="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 active:scale-95 transition disabled:opacity-30 disabled:cursor-not-allowed" disabled>▶</button>
+                        </div>
+                    </div>
+                    
+                    <div id="heatmap-grid" class="grid grid-cols-7 gap-1 mb-3">
+                        <div class="text-xs text-center text-gray-400">日</div>
+                        <div class="text-xs text-center text-gray-400">月</div>
+                        <div class="text-xs text-center text-gray-400">火</div>
+                        <div class="text-xs text-center text-gray-400">水</div>
+                        <div class="text-xs text-center text-gray-400">木</div>
+                        <div class="text-xs text-center text-gray-400">金</div>
+                        <div class="text-xs text-center text-gray-400">土</div>
+                    </div>
+
+                    <div class="flex flex-wrap justify-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-emerald-500 mr-1"></span>休肝+運動</div>
+                        <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-green-400 mr-1"></span>休肝日</div>
+                        <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-blue-400 mr-1"></span>飲酒+運動</div>
+                        <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-red-400 mr-1"></span>飲酒のみ</div>
+                        <div class="flex items-center"><span class="w-3 h-3 rounded-sm bg-cyan-400 mr-1"></span>運動のみ</div>
+                    </div>
+                </div>
+
+                <div id="chart-container" class="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 mb-6 transition-colors">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xs font-bold text-gray-400 uppercase tracking-wide flex items-center gap-1">
+                            <span class="w-2 h-2 bg-indigo-500 rounded-full"></span> Balance & Weight
+                        </h2>
+                        <div class="flex gap-1 bg-gray-100 dark:bg-gray-700 p-0.5 rounded-lg" id="chart-filters">
+                            <button data-range="1w" class="px-2 py-1 text-xs font-bold rounded-md transition-all active-filter bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm">1週間</button>
+                            <button data-range="1m" class="px-2 py-1 text-xs font-bold rounded-md transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">1ヶ月</button>
+                            <button data-range="all" class="px-2 py-1 text-xs font-bold rounded-md transition-all text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">全期間</button>
+                        </div>
+                    </div>
+                    <div class="relative h-64 w-full"><canvas id="balanceChart"></canvas></div>
+                </div>
+
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-700 mb-8 transition-colors relative group/history">
+                    <div class="flex justify-between items-start mb-4">
+                        <div class="flex-1 min-w-0 mr-2">
+                             <h2 class="text-lg font-bold text-gray-800 dark:text-white flex items-center">
+                                <span class="text-xl mr-2">📜</span> 最近の履歴
+                             </h2>
+                             <p id="history-base-label" class="text-xs text-gray-400 font-normal mt-0.5 truncate"></p>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button id="btn-select-all" class="hidden text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg transition hover:bg-gray-200 dark:hover:bg-gray-600">全選択</button>
+                            <button id="btn-toggle-edit-mode" class="text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-gray-700 px-3 py-1.5 rounded-lg transition hover:bg-indigo-100 dark:hover:bg-gray-600">編集</button>
+                        </div>
+                    </div>
+                    
+                    <div id="bulk-action-bar" class="hidden absolute bottom-4 left-0 w-full px-6 z-20">
+                         <button id="btn-bulk-delete" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2">
+                            <span>🗑️</span> 選択した項目を削除 (<span id="bulk-selected-count">0</span>)
+                         </button>
+                    </div>
+
+                    <div id="log-container" class="log-container max-h-80 overflow-y-auto pr-1 transition-all"><div id="log-list" class="divide-y divide-gray-50 dark:divide-gray-700"></div></div>
+                </div>
+                <div class="p-6 rounded-3xl border-2 border-dashed border-gray-200 dark:border-gray-700 text-center">
+                    <p class="text-xs text-gray-400 mb-4 font-bold tracking-widest">DATA MANAGEMENT</p>
+                    <div class="flex flex-col gap-3">
+                        <div class="flex justify-center space-x-3">
+                            <button id="btn-export-logs" class="text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-gray-700 border border-indigo-100 dark:border-gray-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-gray-600 flex items-center gap-1 transition w-full justify-center">📊 飲酒ログCSV</button>
+                            <button id="btn-export-checks" class="text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-gray-700 border border-indigo-100 dark:border-gray-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-100 dark:hover:bg-gray-600 flex items-center gap-1 transition w-full justify-center">📊 健康チェックCSV</button>
+                        </div>
+                        <div class="flex justify-center space-x-4 pt-2 border-t border-gray-100 dark:border-gray-700 mt-2">
+                            <button id="btn-copy-data" class="text-gray-500 text-xs font-bold hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition">📋 コピー</button>
+                            <button id="btn-download-json" class="text-gray-500 text-xs font-bold hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition">📥 DL保存</button>
+                            <label class="text-gray-500 text-xs font-bold hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 cursor-pointer transition">⬆️ 復元<input type="file" accept=".json" class="hidden" id="btn-import-json"></label>
+                        </div>
+                        <div class="pt-4 border-t border-gray-100 dark:border-gray-700 mt-2">
+                            <button id="btn-reset-all" class="text-red-500 text-xs font-bold hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-4 py-2 rounded-lg transition w-full border border-red-200 dark:border-red-900/50">💣 全データを削除して初期化</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="log-detail-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[70] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm modal-content transition-colors relative">
+            <button class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal">&times;</button>
+            
+            <div class="text-center mb-6">
+                <div id="detail-icon" class="text-5xl mb-2">🍺</div>
+                <h3 id="detail-title" class="text-xl font-black text-gray-800 dark:text-white break-words"></h3>
+                <p id="detail-date" class="text-xs text-gray-400 font-bold mt-1"></p>
+            </div>
+
+            <div class="space-y-4 mb-8">
+                <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                    <span class="text-xs font-bold text-gray-500 dark:text-gray-400">収支</span>
+                    <span id="detail-minutes" class="text-lg font-black"></span>
+                </div>
+                
+                <div id="detail-beer-info" class="hidden space-y-3">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                            <p class="text-xs text-gray-400 font-bold uppercase">STYLE</p>
+                            <p id="detail-style" class="text-sm font-bold text-gray-800 dark:text-white truncate"></p>
+                        </div>
+                        <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                            <p class="text-xs text-gray-400 font-bold uppercase">SIZE</p>
+                            <p id="detail-size" class="text-sm font-bold text-gray-800 dark:text-white truncate"></p>
+                        </div>
+                    </div>
+                    <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                        <p class="text-xs text-gray-400 font-bold uppercase mb-1">BREWERY / BRAND</p>
+                        <p id="detail-brand" class="text-sm font-bold text-gray-800 dark:text-white break-words"></p>
+                    </div>
+                </div>
+
+                <div id="detail-memo-container" class="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/30 rounded-xl hidden">
+                    <div id="detail-rating" class="text-yellow-500 text-sm mb-1"></div>
+                    <p id="detail-memo" class="text-sm text-gray-700 dark:text-gray-300 italic"></p>
+                </div>
+            </div>
+
+<div class="flex gap-3">
+                <button id="btn-detail-share" class="flex-1 bg-black dark:bg-white dark:text-gray-900 text-white font-bold py-3 rounded-xl hover:bg-gray-800 dark:hover:bg-gray-200 transition flex items-center justify-center gap-2">
+                    <span>🚀</span> シェア
+                </button>
+                <button id="btn-detail-edit" class="flex-1 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold py-3 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition">編集</button>
+                <button id="btn-detail-delete" class="flex-1 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 font-bold py-3 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/50 transition">削除</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="manual-exercise-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto modal-content transition-colors">
+            <div class="flex justify-between items-center mb-6 border-b border-gray-100 dark:border-gray-700 pb-4">
+                <h3 class="text-lg font-bold text-gray-800 dark:text-white">🏃‍♀️ 運動手入力</h3>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 dark:text-gray-300 mb-2 font-bold" id="manual-exercise-name">運動名</p>
+            <div class="mb-4">
+                <input type="date" id="manual-date" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-gray-800 dark:text-white font-bold text-center">
+            </div>
+            <div class="flex items-center mb-8">
+                <input type="number" inputmode="decimal" id="manual-minutes" placeholder="30" class="w-full p-4 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-gray-800 dark:text-white text-center font-bold text-3xl">
+                <span class="ml-2 font-bold text-gray-500">分</span>
+            </div>
+            
+            <div class="mb-4 flex items-center justify-center">
+                <label class="inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="manual-apply-bonus" class="sr-only peer" checked>
+                    <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:peer-focus:ring-green-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-500"></div>
+                    <span class="ms-3 text-xs font-medium text-gray-900 dark:text-gray-300">🔥 Streakボーナスを適用</span>
+                </label>
+            </div>
+
+            <button id="btn-submit-manual" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-200 dark:shadow-none transition transform active:scale-95">記録する</button>
+        </div>
+    </div>
+
+    <div id="beer-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 p-5 rounded-3xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto modal-content transition-colors">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-100 dark:border-gray-700 pb-2">
+                <h3 class="text-lg font-bold text-gray-800 dark:text-white">🍺 飲酒記録 (借金)</h3>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal">&times;</button>
+            </div>
+            
+            <div class="flex gap-2 mb-4 bg-gray-100 dark:bg-gray-700 p-1 rounded-xl">
+                <button id="tab-beer-preset" class="flex-1 py-2 text-xs font-bold rounded-lg bg-white dark:bg-gray-600 text-indigo-600 dark:text-indigo-300 shadow-sm transition">🍺 スタイル選択</button>
+                <button id="tab-beer-custom" class="flex-1 py-2 text-xs font-bold rounded-lg text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-600 transition">🧪 カスタム入力</button>
+            </div>
+
+            <form id="beer-form">
+                <div class="mb-4">
+                    <label class="block text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wide">DATE</label>
+                    <input type="date" id="beer-date" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white font-bold">
+                </div>
+
+                <div id="beer-input-preset" class="space-y-4">
+                    <div>
+                        <div class="flex justify-between items-end mb-1.5">
+                            <label class="block text-xs font-bold text-gray-400 uppercase tracking-wide">Beer Style</label>
+                            <span class="text-xs text-indigo-500 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-gray-700 px-2 py-0.5 rounded" id="beer-select-mode-label"></span>
+                        </div>
+                        <select id="beer-select" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white font-bold appearance-none"></select>
+                    </div>
+
+                    <div id="preset-abv-container">
+                        <label class="block text-gray-700 dark:text-gray-300 text-sm font-bold mb-2">
+                            度数 (ABV %) <span class="text-xs font-normal text-gray-500">※変更でカロリー自動補正</span>
+                        </label>
+                        <div class="relative">
+                            <input type="number" id="preset-abv" step="0.1" placeholder="5.0" 
+                                class="shadow-sm appearance-none border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded w-full py-3 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-indigo-500 transition">
+                            <span class="absolute right-3 top-3 text-gray-400 font-bold">%</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wide">Size</label>
+                            <select id="beer-size" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white font-bold appearance-none"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-400 mb-1.5 uppercase tracking-wide">Count</label>
+                            <input type="number" inputmode="decimal" id="beer-count" min="0.5" step="0.5" placeholder="1" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white text-center font-bold text-lg">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="beer-input-custom" class="hidden space-y-4">
+                    <div class="grid grid-cols-2 gap-3">
+                         <label class="cursor-pointer group">
+                           <input type="radio" name="customType" value="dry" class="peer hidden" checked>
+                           <div class="p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 peer-checked:border-orange-500 peer-checked:bg-orange-50 dark:peer-checked:bg-orange-900/30 peer-checked:text-orange-700 dark:peer-checked:text-orange-400 text-center transition group-hover:border-orange-200">
+                             <div class="text-2xl mb-1">🔥</div>
+                             <div class="text-xs font-bold">蒸留酒<br>(糖質ゼロ)</div>
+                           </div>
+                         </label>
+                         <label class="cursor-pointer group">
+                           <input type="radio" name="customType" value="sweet" class="peer hidden">
+                           <div class="p-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 peer-checked:border-yellow-500 peer-checked:bg-yellow-50 dark:peer-checked:bg-yellow-900/30 peer-checked:text-yellow-700 dark:peer-checked:text-yellow-400 text-center transition group-hover:border-yellow-200">
+                             <div class="text-2xl mb-1">🍺</div>
+                             <div class="text-xs font-bold">醸造酒<br>(糖質あり)</div>
+                           </div>
+                         </label>
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <div class="flex-1">
+                          <label class="block text-xs font-bold text-gray-400 mb-1">度数 (%)</label>
+                          <input type="number" id="custom-abv" inputmode="decimal" placeholder="5.0" step="0.1" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white font-bold text-center text-lg">
+                        </div>
+                        <div class="flex-1">
+                          <label class="block text-xs font-bold text-gray-400 mb-1">量 (ml)</label>
+                          <input type="number" id="custom-amount" inputmode="decimal" placeholder="350" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-800 dark:text-white font-bold text-center text-lg">
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-2 justify-center pb-2">
+                         <button type="button" class="btn-quick-amount px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition" data-amount="350">350ml</button>
+                         <button type="button" class="btn-quick-amount px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition" data-amount="500">500ml</button>
+                         <button type="button" class="btn-quick-amount px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded text-xs font-bold text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition" data-amount="180">1合</button>
+                    </div>
+                </div>
+
+                <div class="space-y-4 mt-6 border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-xl border border-gray-100 dark:border-gray-600 space-y-2">
+                        <input type="text" id="beer-brewery" placeholder="ブルワリー名 (任意)" class="w-full p-2.5 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm dark:text-white placeholder-gray-400 dark:placeholder-gray-400">
+                        <input type="text" id="beer-brand" placeholder="銘柄名 (任意)" class="w-full p-2.5 bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm dark:text-white placeholder-gray-400 dark:placeholder-gray-400">
+                    </div>
+
+                    <div class="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-xl border border-yellow-100 dark:border-yellow-900/30 space-y-2">
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs font-bold text-yellow-600 dark:text-yellow-500 uppercase">Rating</label>
+                            <select id="beer-rating" class="p-1 bg-white dark:bg-gray-800 border border-yellow-200 dark:border-yellow-700 rounded text-sm font-bold text-yellow-600 dark:text-yellow-500 outline-none">
+                                <option value="0">評価なし</option>
+                                <option value="1">★☆☆☆☆</option>
+                                <option value="2">★★☆☆☆</option>
+                                <option value="3">★★★☆☆</option>
+                                <option value="4">★★★★☆</option>
+                                <option value="5">★★★★★</option>
+                            </select>
+                        </div>
+                        <textarea id="beer-memo" rows="2" placeholder="味の感想やメモ..." class="w-full p-2.5 bg-white dark:bg-gray-800 border border-yellow-200 dark:border-yellow-800 rounded-lg focus:ring-2 focus:ring-yellow-500 outline-none text-sm resize-none dark:text-white placeholder-gray-400"></textarea>
+                    </div>
+                    
+                    <div class="flex items-center justify-center pt-1">
+                        <label class="flex items-center space-x-2 cursor-pointer group">
+                            <input type="checkbox" id="untappd-check" class="w-5 h-5 text-yellow-500 rounded border-gray-300 focus:ring-yellow-500 bg-gray-50 dark:bg-gray-700 dark:border-gray-600">
+                            <span class="text-xs font-bold text-gray-400 dark:text-gray-500 group-hover:text-yellow-600 transition">Untappdで検索して記録する</span>
+                        </label>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition transform active:scale-95 mt-4">記録する</button>
+            </form>
+        </div>
+    </div>
+    <div id="check-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-3xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto modal-content transition-colors">
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-lg font-bold text-gray-800 dark:text-white">✅ デイリーチェック</h3>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal">&times;</button>
+            </div>
+            <p class="text-xs text-gray-400 mb-6 font-medium">コンディションと対策を振り返り</p>
+            <form id="check-form">
+                <div class="space-y-4 mb-8">
+                    <div class="p-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg">
+                        <label class="block text-xs font-bold text-gray-400 mb-1 ml-1 uppercase">DATE</label>
+                        <input type="date" id="check-date" class="w-full p-2 bg-transparent border-none outline-none text-gray-700 dark:text-white font-bold">
+                    </div>
+                    
+                    <div class="flex items-center justify-between p-3.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl">
+                        <span class="text-blue-800 dark:text-blue-300 font-bold text-sm">🍵 今日は休肝日 (飲まない)</span>
+                        <input type="checkbox" id="is-dry-day" class="h-6 w-6 text-blue-600 rounded focus:ring-blue-500 border-gray-300 bg-white dark:bg-gray-700 dark:border-gray-600">
+                    </div>
+                    <div id="drinking-section" class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800 accordion-content">
+                        <h4 class="text-xs font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider mb-3">🛡️ 対策 (飲む前・飲酒中)</h4>
+                        <div class="space-y-3">
+                            <label class="flex items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-lg border border-indigo-100 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-500 cursor-pointer"><span class="text-gray-700 dark:text-gray-300 font-bold text-sm">🥗 飲酒前の食物繊維</span><input type="checkbox" name="fiberOk" class="h-5 w-5 text-indigo-600 rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600"></label>
+                            <label class="flex items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-lg border border-indigo-100 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-500 cursor-pointer"><span class="text-gray-700 dark:text-gray-300 font-bold text-sm">💧 飲酒中/後の水分補給</span><input type="checkbox" name="waterOk" class="h-5 w-5 text-indigo-600 rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600"></label>
+                        </div>
+                    </div>
+                    <div class="bg-green-50 dark:bg-green-900/20 p-4 rounded-xl border border-green-100 dark:border-green-800">
+                        <h4 class="text-xs font-bold text-green-600 dark:text-green-400 uppercase tracking-wider mb-3">🧘 コンディション (日中)</h4>
+                        <div class="space-y-3">
+                            <label class="flex items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-lg border border-green-100 dark:border-gray-700 hover:border-green-300 dark:hover:border-green-500 cursor-pointer"><span class="text-gray-700 dark:text-gray-300 font-bold text-sm">👖 ウエストに余裕あり</span><input type="checkbox" name="waistEase" class="h-5 w-5 text-green-600 rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600"></label>
+                            <label class="flex items-center justify-between bg-white dark:bg-gray-800 p-3 rounded-lg border border-green-100 dark:border-gray-700 hover:border-green-300 dark:hover:border-green-500 cursor-pointer"><span class="text-gray-700 dark:text-gray-300 font-bold text-sm">🦶 足が軽い・むくみなし</span><input type="checkbox" name="footLightness" class="h-5 w-5 text-green-600 rounded bg-gray-100 dark:bg-gray-700 dark:border-gray-600"></label>
+                        </div>
+                    </div>
+                    <div class="pt-4 border-t border-gray-100 dark:border-gray-700">
+                         <label class="block text-xs font-bold text-gray-400 mb-1">📏 体重 (任意)</label>
+                         <div class="flex items-center gap-2">
+                             <input type="number" inputmode="decimal" id="check-weight" step="0.1" placeholder="測った時だけ入力" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-700 dark:text-white">
+                             <span class="text-xs font-bold text-gray-400">kg</span>
+                         </div>
+                         <p class="text-xs text-gray-400 mt-1 text-center">※入力しなくてもOKです</p>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition transform active:scale-95">完了</button>
+            </form>
+        </div>
+    </div>    
+    <div id="settings-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[60] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 p-0 rounded-3xl shadow-2xl w-full max-w-sm max-h-[90vh] flex flex-col modal-content transition-colors overflow-hidden">
+            <div class="flex justify-between items-center p-5 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+                <h3 class="text-lg font-black text-gray-800 dark:text-white flex items-center gap-2">
+                    <span class="text-xl">⚙️</span> 設定
+                </h3>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal">&times;</button>
+            </div>
+
+            <div class="p-6 overflow-y-auto custom-scrollbar space-y-8">
+                
+                <section>
+                    <h4 class="text-xs font-bold text-indigo-500 dark:text-indigo-400 mb-3 uppercase tracking-widest border-b border-indigo-100 dark:border-gray-700 pb-1">
+                        1. 身体データ (カロリー計算用)
+                    </h4>
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1 font-bold">身長 (cm)</label>
+                            <input type="number" inputmode="decimal" id="height-input" min="100" max="250" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-800 dark:text-white text-lg">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1 font-bold">体重 (kg)</label>
+                            <input type="number" inputmode="decimal" id="weight-input" min="20" max="200" step="0.1" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-800 dark:text-white text-lg">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1 font-bold">年齢 (歳)</label>
+                            <input type="number" inputmode="decimal" id="age-input" min="10" max="100" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-800 dark:text-white">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1 font-bold">性別</label>
+                            <select id="gender-input" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-800 dark:text-white">
+                                <option value="male">男性</option>
+                                <option value="female">女性</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h4 class="text-xs font-bold text-orange-500 dark:text-orange-400 mb-3 uppercase tracking-widest border-b border-orange-100 dark:border-gray-700 pb-1">
+                        2. 借金返済のルール
+                    </h4>
+                    
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">
+                            メインの返済方法 (通貨)
+                            <span class="block text-xs text-gray-400 font-normal mt-0.5">※この運動を基準に借金(時間)が表示されます</span>
+                        </label>
+                        <div class="bg-orange-50 dark:bg-orange-900/20 p-2 rounded-xl border border-orange-200 dark:border-orange-800">
+                            <select id="setting-base-exercise" class="w-full p-3 bg-white dark:bg-gray-800 border border-orange-200 dark:border-gray-600 rounded-lg text-sm font-bold text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-orange-500"></select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">換算基準 1 (メイン)</label>
+                            <div class="bg-gray-50 dark:bg-gray-700 p-1.5 rounded-lg border border-gray-200 dark:border-gray-600">
+                                <select id="setting-mode-1" class="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md text-xs font-bold text-gray-800 dark:text-white"></select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">換算基準 2 (サブ)</label>
+                            <div class="bg-gray-50 dark:bg-gray-700 p-1.5 rounded-lg border border-gray-200 dark:border-gray-600">
+                                <select id="setting-mode-2" class="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-md text-xs font-bold text-gray-800 dark:text-white"></select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-xl border border-gray-200 dark:border-gray-600">
+                        <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1 font-bold">運動記録のデフォルト</label>
+                        <select id="setting-default-record-exercise" class="w-full p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg text-sm font-bold text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                </section>
+
+                <section>
+                    <h4 class="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest border-b border-gray-100 dark:border-gray-700 pb-1">
+                        3. その他
+                    </h4>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">外観 (テーマ)</label>
+                        <select id="theme-input" class="w-full p-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold text-gray-800 dark:text-white">
+                            <option value="system">📱 端末の設定に合わせる</option>
+                            <option value="light">☀️ ライトモード</option>
+                            <option value="dark">🌙 ダークモード</option>
+                        </select>
+                    </div>
+                </section>
+
+            </div>
+
+            <div class="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <button id="btn-save-settings" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition transform active:scale-95 text-sm">設定を保存してはじめる</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="help-modal" class="fixed inset-0 bg-gray-900 bg-opacity-60 hidden z-[70] flex items-center justify-center p-4 backdrop-blur-sm modal-bg">
+        <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col modal-content transition-colors overflow-hidden">
+            <div class="flex justify-between items-center p-5 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
+                <h3 class="text-lg font-black text-gray-800 dark:text-white flex items-center gap-2">
+                    <span class="text-2xl">📖</span> 使い方ガイド
+                </h3>
+                <button class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-4 btn-close-modal transition-transform hover:rotate-90">&times;</button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto space-y-8 custom-scrollbar">
+                
+                <section class="text-center">
+                    <h4 class="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-3 tracking-widest uppercase">CONCEPT</h4>
+                    <p class="text-lg font-bold text-gray-800 dark:text-white mb-2">
+                        「飲んだら、動いて返す」
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                        飲酒は<span class="font-bold text-red-500">「借金」</span>、運動は<span class="font-bold text-green-500">「返済」</span>。<br>
+                        飲んだビールのカロリー分を、運動で消費して<br>
+                        <span class="font-bold">「実質ゼロカロリー」</span>を目指すゲームです。
+                    </p>
+                </section>
+                
+                <section>
+                    <h4 class="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-4 tracking-widest uppercase text-center">HOW TO PLAY</h4>
+                    <div class="space-y-3">
+                        <div class="flex items-start gap-4 p-3 rounded-2xl bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700">
+                            <div class="bg-white dark:bg-gray-600 w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-sm flex-shrink-0">⚙️</div>
+                            <div>
+                                <h5 class="font-bold text-gray-800 dark:text-white text-sm">STEP 1. まずは設定</h5>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">右上の歯車ボタンからプロフィール（身長・体重）を入力。これが正確なカロリー借金計算の鍵です！</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4 p-3 rounded-2xl bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30">
+                            <div class="bg-white dark:bg-gray-600 w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-sm flex-shrink-0">🍺</div>
+                            <div>
+                                <h5 class="font-bold text-orange-700 dark:text-orange-400 text-sm">STEP 2. 飲んだら記録（借金）</h5>
+                                <p class="text-xs text-orange-600/80 dark:text-orange-300/80 mt-1">「記録」タブでお酒を入力。ホーム画面のグラスが空っぽになり、借金時間（運動ノルマ）が増えます。</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4 p-3 rounded-2xl bg-green-50 dark:bg-green-900/10 border border-green-100 dark:border-green-900/30">
+                            <div class="bg-white dark:bg-gray-600 w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-sm flex-shrink-0">🏃‍♀️</div>
+                            <div>
+                                <h5 class="font-bold text-green-700 dark:text-green-400 text-sm">STEP 3. 動いて返済</h5>
+                                <p class="text-xs text-green-600/80 dark:text-green-300/80 mt-1">ステッパーやウォーキングで運動。「START」ボタンで計測するか、手入力で記録して借金を完済しましょう！</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <section>
+                    <h4 class="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-3 tracking-widest uppercase text-center">RANK SYSTEM</h4>
+                    <div class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-800 text-center">
+                        <p class="text-xs text-gray-600 dark:text-gray-300 mb-3">
+                            直近28日間の<span class="font-bold text-indigo-600 dark:text-indigo-400">「休肝日率」</span>でランクが決まります。<br>
+                            休肝日を作ってランクアップを目指そう！
+                        </p>
+                        
+                        <div class="mb-4 bg-white dark:bg-gray-800 p-2 rounded-lg border border-indigo-100 dark:border-indigo-700">
+                            <span class="text-xs font-bold bg-orange-500 text-white px-2 py-0.5 rounded-full">🔰 ルーキーモード</span>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                開始28日間は「日数」ではなく「成功率」で判定。<br>初心者でもすぐにSランクを目指せます！
+                            </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="bg-white dark:bg-gray-800 p-2 rounded-lg border border-purple-100 dark:border-purple-900/50 shadow-sm">
+                                <span class="block text-xl mb-1">👼</span>
+                                <span class="block text-xs font-bold text-purple-600 dark:text-purple-400">ランク S</span>
+                                <span class="block text-xs text-gray-400">週5日 休肝</span>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 p-2 rounded-lg border border-indigo-100 dark:border-indigo-900/50 shadow-sm">
+                                <span class="block text-xl mb-1">🛡️</span>
+                                <span class="block text-xs font-bold text-indigo-600 dark:text-indigo-400">ランク A</span>
+                                <span class="block text-xs text-gray-400">週3日 休肝</span>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 p-2 rounded-lg border border-green-100 dark:border-green-900/50 shadow-sm">
+                                <span class="block text-xl mb-1">🌿</span>
+                                <span class="block text-xs font-bold text-green-600 dark:text-green-400">ランク B</span>
+                                <span class="block text-xs text-gray-400">週2日 休肝</span>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm">
+                                <span class="block text-xl mb-1">⚠️</span>
+                                <span class="block text-xs font-bold text-gray-500 dark:text-gray-400">ランク C</span>
+                                <span class="block text-xs text-gray-400">がんばろう</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h4 class="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-3 tracking-widest uppercase text-center">USEFUL TIPS</h4>
+                    <ul class="grid grid-cols-1 gap-2 text-xs text-gray-600 dark:text-gray-300">
+                        <li class="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg">
+                            <span class="text-lg">👆</span>
+                            <span><strong>スワイプ操作:</strong> 画面を左右にスワイプすると、タブ（ホーム⇔記録⇔履歴）をサクサク切り替えられます。</span>
+                        </li>
+                        <li class="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg">
+                            <span class="text-lg">⚡</span>
+                            <span><strong>いつものボタン:</strong> よく飲むお酒は、記録画面の上部に「いつもの」として自動登録されます。</span>
+                        </li>
+                        <li class="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg">
+                            <span class="text-lg">🔥</span>
+                            <span><strong>連続記録ボーナス:</strong> 休肝日を続けると、運動時の「返済効率」がアップ！(最大1.2倍)</span>
+                        </li>
+                        <li class="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg">
+                            <span class="text-lg">✅</span>
+                            <span><strong>デイリーチェック:</strong> 飲んだ翌日や休肝日には「健康チェック」を。体調の変化をグラフで確認できます。</span>
+                        </li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h4 class="text-sm font-bold text-indigo-600 dark:text-indigo-400 mb-3 tracking-widest uppercase text-center">OTHER DRINKS</h4>
+                    <p class="text-xs text-center text-gray-500 dark:text-gray-400 mb-3">ビール以外を飲むときは、カロリーや度数が近い以下のスタイルを選んで記録してください。</p>
+                    
+                    <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-gray-700">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead class="bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                                <tr>
+                                    <th class="p-3 font-bold">飲み物</th>
+                                    <th class="p-3 font-bold">おすすめ設定</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-700/30 text-gray-700 dark:text-gray-200">
+                                <tr>
+                                    <td class="p-3">🍷 ワイン / 日本酒</td>
+                                    <td class="p-3"><span class="font-bold">ベルジャン・トリペル</span> (250ml)</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-3">🥃 ハイボール (7%)</td>
+                                    <td class="p-3"><span class="font-bold">アンバーエール</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="p-3">🍋 レモンサワー</td>
+                                    <td class="p-3"><span class="font-bold">ペールエール</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="p-3">🥤 ストロング系 (9%)</td>
+                                    <td class="p-3"><span class="font-bold">IPA (West Coast)</span></td>
+                                </tr>
+                                <tr>
+                                    <td class="p-3">🍵 焼酎ハイ/お茶割</td>
+                                    <td class="p-3"><span class="font-bold">セッションIPA</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+            
+            <div class="p-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                <button class="w-full bg-gray-800 dark:bg-gray-700 text-white font-bold py-3.5 rounded-xl shadow-md text-sm btn-close-modal hover:bg-gray-900 transition active:scale-95">閉じる</button>
+            </div>
+        </div>
+    </div>
+    <div id="swipe-coach-mark" class="fixed inset-0 z-[80] bg-black/60 hidden flex-col items-center justify-center pointer-events-none transition-opacity duration-500 opacity-0">
+        <div class="relative w-64 h-64 flex items-center justify-center">
+            <div class="text-6xl animate-bounce-horizontal filter drop-shadow-lg">👆</div>
+            <div class="absolute inset-0 border-2 border-dashed border-white/30 rounded-3xl"></div>
+            <div class="absolute bottom-10 w-full text-center">
+                <p class="text-white font-bold text-lg drop-shadow-md">左右にスワイプして<br>画面を切り替え</p>
+            </div>
+        </div>
+    </div>
+    <nav class="fixed bottom-0 w-full bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 pb-safe z-50 transition-colors">
+        <div class="container mx-auto max-w-xl flex justify-around items-center h-20 px-2">
+            
+            <button id="nav-tab-home" class="nav-item flex flex-col items-center justify-center w-full h-full text-indigo-600 dark:text-indigo-400 active:scale-95 transition">
+                <span class="text-3xl mb-0.5">🏠</span>
+                <span class="text-xs font-bold">ホーム</span>
+            </button>
+
+            <button id="nav-tab-record" class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-400 dark:text-gray-500 active:scale-95 transition">
+                <span class="text-3xl mb-0.5">⏱️</span>
+                <span class="text-xs font-bold">記録</span>
+            </button>
+
+            <button id="nav-tab-history" class="nav-item flex flex-col items-center justify-center w-full h-full text-gray-400 dark:text-gray-500 active:scale-95 transition">
+                <span class="text-3xl mb-0.5">📊</span>
+                <span class="text-xs font-bold">履歴</span>
+            </button>
+            
+        </div>
+    </nav>
+    <script type="module" src="./main.js"></script>
+<script type="module" src="./test.js"></script>
+</body>
+</html>
